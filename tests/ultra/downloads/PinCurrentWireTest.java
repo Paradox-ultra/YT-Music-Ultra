@@ -1,0 +1,1 @@
+package ultra.downloads;import org.junit.Test;public class PinCurrentWireTest{@Test public void currentRadioLikedAndNumericPinBadge(){PinWireChecks.main(new String[0]);}}
