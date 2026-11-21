@@ -1,0 +1,10 @@
+import app.revanced.extension.shared.utils.Utils;
+import com.google.protos.youtube.api.innertube.BrowseEndpointOuterClass;import com.google.protos.youtube.api.innertube.WatchEndpointOuterClass;import org.junit.*;import static org.junit.Assert.*;import org.junit.runner.RunWith;import org.robolectric.*;import org.robolectric.annotation.*;
+@RunWith(RobolectricTestRunner.class) @Config(manifest=Config.NONE,sdk=28)
+public class RadioRowTest {
+ @Before public void setup(){Utils.testContext=Robolectric.buildActivity(android.app.Activity.class).setup().get();}
+ bqtu row(String id){bizw e=(bizw)bizw.a.createBuilder().instance;e.b=1;e.c=id;bhbf c=(bhbf)bjue.a.createBuilder();c.e(BrowseEndpointOuterClass.browseEndpoint,e);bqtu r=(bqtu)bqtu.a.createBuilder().instance;r.i=(bjue)c.build();r.e=UltraRadioBridge.text("Liked music");r.g=UltraRadioBridge.text("Auto playlist");r.b=1|4|16|64;r.c=btdg.a;return r;}
+ @Test public void exactLibraryRowChangesToNativeRadio()throws Exception{bqtu r=row("VLLM");Object out=UltraRadioBridge.row(r,true,"abcdefghijk");assertNotSame(r,out);bqtu n=(bqtu)out;assertEquals("",n.e.d);assertEquals("Radio",n.g.d);assertEquals("Based on your last played song",n.h.d);assertEquals("Liked music",r.e.d);bizw entry=(bizw)n.i.j.l(BrowseEndpointOuterClass.browseEndpoint.d);assertEquals("FEmusic_ultra_radio",entry.c);bwmb watch=(bwmb)UltraRadioBridge.radio("abcdefghijk").j.l(WatchEndpointOuterClass.watchEndpoint.d);assertEquals("RDAMVMabcdefghijk",watch.e);byte[] wire=n.toByteArray();assertTrue(wire.length>0);assertSame(r,UltraRadioBridge.row(r,false,"abcdefghijk"));}
+ @Test public void otherRowsAndNoSeedUnchanged(){for(String id:new String[]{"VLPLprivate","VLSE","UCabcdefghijk"}){bqtu r=row(id);assertSame(r,UltraRadioBridge.row(r,true,"abcdefghijk"));}bqtu r=row("VLLM");assertNotSame(r,UltraRadioBridge.row(r,true,""));assertNull(UltraRadioBridge.radio("invalid"));}
+ @Test public void originalMenuAndNavigationNotUsedByRadio(){bqtu r=row("VLLM");r.k=r.i;r.p=btdg.a;r.b|=128|8192;bqtu n=(bqtu)UltraRadioBridge.row(r,true,"abcdefghijk");assertEquals(0,n.b&(128|8192));assertSame(bjue.a,n.k);assertSame(btdg.a,n.p);}
+}
