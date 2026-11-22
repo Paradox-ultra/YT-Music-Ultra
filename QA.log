@@ -1,0 +1,122 @@
+[INFO] Scanning for projects...
+[WARNING] 
+[WARNING] Some problems were encountered while building the effective model for ultra:downloads-checks:jar:1
+[WARNING] 'dependencies.dependency.systemPath' for host:runtime:jar should not point at files within the project directory, ${project.basedir}/host-jvm.jar will be unresolvable by dependent projects @ line 1, column 766
+[WARNING] 'dependencies.dependency.systemPath' for android:framework-stubs:jar should not point at files within the project directory, ${project.basedir}/android.jar will be unresolvable by dependent projects @ line 1, column 955
+[WARNING] 
+[WARNING] It is highly recommended to fix these problems because they threaten the stability of your build.
+[WARNING] 
+[WARNING] For this reason, future Maven versions might no longer support building such malformed projects.
+[WARNING] 
+[INFO] 
+[INFO] -----------------------< ultra:downloads-checks >-----------------------
+[INFO] Building downloads-checks 1
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ downloads-checks ---
+[INFO] skip non existing resourceDirectory /tmp/dl32/src/src/main/resources
+[INFO] 
+[INFO] --- compiler:3.13.0:compile (default-compile) @ downloads-checks ---
+[INFO] Nothing to compile - all classes are up to date.
+[INFO] 
+[INFO] --- resources:3.3.1:testResources (default-testResources) @ downloads-checks ---
+[INFO] skip non existing resourceDirectory /tmp/dl32/src/src/test/resources
+[INFO] 
+[INFO] --- compiler:3.13.0:testCompile (default-testCompile) @ downloads-checks ---
+[INFO] Recompiling the module because of changed source code.
+[INFO] Compiling 56 source files with javac [debug target 8] to target/test-classes
+[WARNING] bootstrap class path not set in conjunction with -source 8
+[INFO] /tmp/dl32/src/tests/DL24AdapterOrderTest.java: Some input files use or override a deprecated API.
+[INFO] /tmp/dl32/src/tests/DL24AdapterOrderTest.java: Recompile with -Xlint:deprecation for details.
+[INFO] /tmp/dl32/src/tests/ultra/downloads/NativeStreamsTest.java: /tmp/dl32/src/tests/ultra/downloads/NativeStreamsTest.java uses unchecked or unsafe operations.
+[INFO] /tmp/dl32/src/tests/ultra/downloads/NativeStreamsTest.java: Recompile with -Xlint:unchecked for details.
+[INFO] 
+[INFO] --- surefire:3.5.2:test (default-test) @ downloads-checks ---
+[INFO] Using auto detected provider org.apache.maven.surefire.junit4.JUnit4Provider
+[INFO] 
+[INFO] -------------------------------------------------------
+[INFO]  T E S T S
+[INFO] -------------------------------------------------------
+OpenJDK 64-Bit Server VM warning: Options -Xverify:none and -noverify were deprecated in JDK 13 and will likely be removed in a future release.
+[INFO] Running NativeMainListIntegrationTest
+No package ID ff found for ID 0xffffffff.
+No package ID ff found for ID 0xffffffff.
+No package ID ff found for ID 0xffffffff.
+No package ID ff found for ID 0xffffffff.
+No package ID ff found for ID 0xffffffff.
+No package ID ff found for ID 0xffffffff.
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 2.698 s -- in NativeMainListIntegrationTest
+[INFO] Running ultra.downloads.ArtTest
+[INFO] Tests run: 8, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 2.601 s -- in ultra.downloads.ArtTest
+[INFO] Running ultra.downloads.LocalAudioNameMatchTest
+[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.083 s -- in ultra.downloads.LocalAudioNameMatchTest
+[INFO] Running ultra.downloads.PinCurrentWireTest
+PASS 12 pin wire checks
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.004 s -- in ultra.downloads.PinCurrentWireTest
+[INFO] Running ultra.downloads.DL26DefaultTabTest
+[INFO] Tests run: 10, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.829 s -- in ultra.downloads.DL26DefaultTabTest
+[INFO] Running ultra.downloads.DL29UiTest
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.993 s -- in ultra.downloads.DL29UiTest
+[INFO] Running ultra.downloads.LocalAudioTest
+[INFO] Tests run: 10, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 2.372 s -- in ultra.downloads.LocalAudioTest
+[INFO] Running ultra.downloads.DL32Test
+[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.354 s -- in ultra.downloads.DL32Test
+[INFO] Running ultra.downloads.DL24PinPerformanceTest
+DL24_PIN400_MS 9
+[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.119 s -- in ultra.downloads.DL24PinPerformanceTest
+[INFO] Running ultra.downloads.PlaylistMirrorTest
+[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.227 s -- in ultra.downloads.PlaylistMirrorTest
+[INFO] Running ultra.downloads.DL28PolishTest
+[INFO] Tests run: 11, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.850 s -- in ultra.downloads.DL28PolishTest
+[INFO] Running ultra.downloads.DL25PlaylistTest
+[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.296 s -- in ultra.downloads.DL25PlaylistTest
+[INFO] Running ultra.downloads.DL31Test
+[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.224 s -- in ultra.downloads.DL31Test
+[INFO] Running ultra.downloads.DL26VisualTest
+[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.532 s -- in ultra.downloads.DL26VisualTest
+[INFO] Running ultra.downloads.DL27CopiesTest
+[INFO] Tests run: 12, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.532 s -- in ultra.downloads.DL27CopiesTest
+[INFO] Running ultra.downloads.DL24PerformanceTest
+DL24_SCAN rows=60 cold_ms=50 warm_ms=2
+DL24_SCAN rows=400 cold_ms=54 warm_ms=23
+DL24_MATCH rows=60 legacy_ms=17 indexed_ms=1
+DL24_MATCH rows=400 legacy_ms=231 indexed_ms=19
+[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.775 s -- in ultra.downloads.DL24PerformanceTest
+[INFO] Running ultra.downloads.SelectionModeTest
+[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.136 s -- in ultra.downloads.SelectionModeTest
+[INFO] Running ultra.downloads.DL30Test
+[INFO] Tests run: 10, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.855 s -- in ultra.downloads.DL30Test
+[INFO] Running ultra.downloads.DL26PickerTest
+[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.291 s -- in ultra.downloads.DL26PickerTest
+[INFO] Running ultra.downloads.DL29CoversTest
+[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.202 s -- in ultra.downloads.DL29CoversTest
+[INFO] Running ultra.downloads.DL28DeleteProviderTest
+[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.368 s -- in ultra.downloads.DL28DeleteProviderTest
+[INFO] Running ultra.downloads.DL23RegressionTest
+[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.526 s -- in ultra.downloads.DL23RegressionTest
+[INFO] Running NativeIdentityTest
+[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.098 s -- in NativeIdentityTest
+[INFO] Running LibraryPinOrderWireTest
+[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.308 s -- in LibraryPinOrderWireTest
+[INFO] Running DL27BackTest
+[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.407 s -- in DL27BackTest
+[INFO] Running NativeSelectionUiTest
+[INFO] Tests run: 9, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.758 s -- in NativeSelectionUiTest
+[INFO] Running RadioRowTest
+[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.110 s -- in RadioRowTest
+[INFO] Running DL24AdapterOrderTest
+[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.153 s -- in DL24AdapterOrderTest
+[INFO] Running GenericRadioTest
+[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.157 s -- in GenericRadioTest
+[INFO] 
+[INFO] Results:
+[INFO] 
+[INFO] Tests run: 169, Failures: 0, Errors: 0, Skipped: 0
+[INFO] 
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  22.482 s
+[INFO] Finished at: 2026-11-23T01:01:23+05:30
+[INFO] ------------------------------------------------------------------------
