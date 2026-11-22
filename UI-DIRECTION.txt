@@ -1,0 +1,23 @@
+DL28 UI direction
+Product: saved music and private device playlists inside YT Music Ultra.
+Character: calm, tactile, familiar.
+World: a dark listening room, with actual album covers carrying the colour.
+Moments: artwork and the existing app mark, without decorative gradients.
+Signature: rounded cover crops, outlined controls, pure-black surfaces.
+
+Design sources consulted:
+https://github.com/heydamir/unslop
+https://github.com/magicuidesign/magicui
+
+Unslop by Damir Sokolovsky (@heydamir), CC BY 4.0, informed the polish audit:
+remove blue/purple gradient placeholders and tinted selection surfaces; use a
+steady spacing scale, quiet hairlines, sentence-case labels and restrained type.
+User-requested #000000 backgrounds take precedence over its dark-grey defaults.
+This is a visual adaptation, not installation of an agent plugin.
+
+Magic UI, MIT, informed the small ease-out fade/rise on menu opening and rounded,
+quiet borders. Implemented using Android views, without embedding a web UI or
+adding a JavaScript runtime. Animation respects Android's animation setting.
+
+Preserved: app name, launcher icon, native navigation and player, playlist copy
+isolation, existing downloader, pinning and selection workflows.
