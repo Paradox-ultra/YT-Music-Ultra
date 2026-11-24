@@ -187,3 +187,18 @@ DL53
   other behaviour change. Tests: 221 (DL52Test +1).
 - New host query: NativeIntegration.homeShowing()Z (public static, no arguments, no side effects): true when Ultra
   Home is built and on top (mount attached, shown, topmost child of fragment_container). Tests: 222.
+
+DL55 (device report on DL54)
+- Cover counters read 0/6, 0/8, 0/12 with covers visible: the "render #N ... art 0/N" timeline lines were written at
+  render time, before any cover arrived, and the per-section block was unreadable from Diagnostics because opening
+  Download settings opens Downloads, which closes Home. Now: covers are counted where the bitmap is set on its
+  ImageView (HomeScreen.coverSet, the only set path: cache hit, saved file, embedded, fetched, settle re-request),
+  once per cover per section; render lines list items only; a "covers on screen: recent 8/8, quick 6/6, ..." line is
+  logged when covers settle (1.5 s / 4 s, only when changed); the last Home report is kept after Home closes
+  ("Ultra Home: not open now; last shown: ...").
+- Timeline spam: no module code calls fromTab and no module timer touches the tab bar (only the host calls fromTab;
+  module timers: page scan 3 s, Downloads tick 1.2 s while Downloads is in front, dialog guard, download monitor).
+  fromTab(FEmusic_ultra_home) while Home is built and on top now returns at once and is counted in ONE summary line:
+  "repeat fromTab FEmusic_ultra_home while Home was showing (no-op): xN, first at .. ms, last at .. ms, callers
+  {<host frames>=N}". The no-op openHome line is gone. The callers map names the host method that keeps calling.
+- Tests: 224 (DL55Test 2, DL52Test updated). Legacy unlisted suites: same 14 pre-existing failures.

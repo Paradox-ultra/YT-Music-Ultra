@@ -140,13 +140,29 @@ public final class NativeIntegration {
         }
         return b.length() == 0 ? "module" : b.toString();
     }
-    /** Download settings > Diagnostics: Home sections of the last render, then the timeline. */
+    /** Repeated fromTab(FEmusic_ultra_home) while Home was already showing: count, first/last time, callers. */
+    static int repeatCount; static long repeatFirst, repeatLast;
+    static final java.util.LinkedHashMap<String, Integer> repeatCallers = new java.util.LinkedHashMap<>();
+    static void repeatHome(String caller) {
+        long now = SystemClock.uptimeMillis() - STARTED;
+        synchronized (TIMELINE) {
+            if (repeatCount == 0) repeatFirst = now;
+            repeatCount++; repeatLast = now;
+            Integer n = repeatCallers.get(caller); repeatCallers.put(caller, n == null ? 1 : n + 1);
+        }
+    }
+    /** Download settings > Diagnostics: Home sections (current, or the last one shown), then the timeline. */
     public static String homeReport() {
         StringBuilder b = new StringBuilder();
         ultra.home.HomeScreen h = home;
-        b.append(h == null ? "Ultra Home: not open\n" : h.diagnostics());
+        if (h != null) b.append(h.diagnostics());
+        else b.append("Ultra Home: not open now").append(ultra.home.HomeScreen.lastReport.isEmpty() ? "\n" : "; last shown:\n" + ultra.home.HomeScreen.lastReport);
         b.append("Home timeline (ms since module start):\n");
-        synchronized (TIMELINE) { for (String line : TIMELINE) b.append("  ").append(line).append('\n'); }
+        synchronized (TIMELINE) {
+            for (String line : TIMELINE) b.append("  ").append(line).append('\n');
+            if (repeatCount > 0) b.append("  repeat fromTab FEmusic_ultra_home while Home was showing (no-op): x").append(repeatCount)
+                .append(", first at ").append(repeatFirst).append(" ms, last at ").append(repeatLast).append(" ms, callers ").append(repeatCallers).append('\n');
+        }
         return b.toString();
     }
 
@@ -166,6 +182,13 @@ public final class NativeIntegration {
      * as one of its own tabs.
      */
     public static boolean fromTab(Object controller, String pivot) {
+        if (HOME_PIVOT.equals(pivot) && homeShowing()) {
+            // DL55: Home is built and on top: nothing to do. Counted in one summary line instead of a timeline entry
+            // per call, with the host caller frames, so a periodic caller can be identified.
+            barController = new WeakReference<>(controller); landedByHomeBack = false;
+            repeatHome(caller());
+            return true;
+        }
         timeline("fromTab " + pivot + " from " + caller());
         if (HOME_PIVOT.equals(pivot) || DOWNLOADS_PIVOT.equals(pivot)) {barController = new WeakReference<>(controller);landedByHomeBack = false;}
         if (HOME_PIVOT.equals(pivot)) {
@@ -413,7 +436,7 @@ public final class NativeIntegration {
                     // DL52: Home is built and showing (or loading): no reload, no render, at most brought to the front.
                     homeOnTop();
                     if (!home.hasContent() && !home.isLoading()) { home.refresh(); timeline("openHome on the open Home tab: no content, reloading"); }
-                    else timeline("openHome on the open Home tab: no-op");
+                    // no-op: not logged (DL55)
                     Diagnostics.event("home", "reuse-tab");
                     return;
                 }

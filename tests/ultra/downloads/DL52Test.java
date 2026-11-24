@@ -12,7 +12,7 @@ public class DL52Test {
   a=Robolectric.buildActivity(Host.class).setup().get();app.revanced.extension.shared.utils.Utils.testContext=a;Library.prefs(a).edit().clear().commit();
   Field f=Library.class.getDeclaredField("items");f.setAccessible(true);f.set(null,null);new File(a.getFilesDir(),"ultra_downloads_v1.json").delete();Library.wiping=false;PlaylistIndex.invalidateCache();
   NativeIntegration.panel=null;NativeIntegration.home=null;NativeIntegration.homeMount=null;NativeIntegration.homeOpenPending=false;HomeScreen.COVERS.evictAll();Art.network=false;
-  synchronized(NativeIntegration.TIMELINE){NativeIntegration.TIMELINE.clear();}
+  synchronized(NativeIntegration.TIMELINE){NativeIntegration.TIMELINE.clear();NativeIntegration.repeatCount=0;NativeIntegration.repeatCallers.clear();}
   File dir=new File(a.getFilesDir(),"ultra_audio_art");if(dir.isDirectory())for(File x:dir.listFiles())x.delete();
  }
  @After public void after(){HomeSource.embeddedReader=null;NativeIntegration.leave();NativeIntegration.destroyed(a);}
@@ -48,7 +48,7 @@ public class DL52Test {
   for(int tick=0;tick<8;tick++){NativeIntegration.fromTab(new Object(),NativeIntegration.HOME_PIVOT);run(700);}
   run(3000);
   assertSame(h,NativeIntegration.home);assertEquals("no render from repeated host opens",before,renders(h));
-  assertTrue(NativeIntegration.homeReport(),NativeIntegration.homeReport().contains("openHome on the open Home tab: no-op"));
+  assertTrue(NativeIntegration.homeReport(),NativeIntegration.homeReport().contains("repeat fromTab FEmusic_ultra_home while Home was showing (no-op): x8"));
   assertTrue("first load renders at most twice (songs, then playlists)",before<=2);
  }
  @Test public void rendersAreDebouncedAndUnchangedDataIsSkipped()throws Exception{

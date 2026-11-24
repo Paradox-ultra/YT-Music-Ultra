@@ -37,6 +37,18 @@ public final class HomeScreen extends ContextThemeWrapper {
     final LinkedHashMap<String,int[]> sections=new LinkedHashMap<>();private long renderedAt;private int renders;
     /** Per section: covers by source (file, embedded, fetched, none). */
     final LinkedHashMap<String,LinkedHashMap<String,Integer>> sources=new LinkedHashMap<>();
+    /** DL55: covers counted at the moment a bitmap is set on its ImageView (every path), once per cover, per section. */
+    final LinkedHashMap<String,LinkedHashSet<String>> coversWanted=new LinkedHashMap<>(),coversShown=new LinkedHashMap<>();
+    /** The last Home report, kept after Home closes (Diagnostics is opened from Downloads, which closes Home). */
+    public static volatile String lastReport="";
+    private String loggedCovers="";
+    static LinkedHashSet<String> set(LinkedHashMap<String,LinkedHashSet<String>> m,String k){LinkedHashSet<String> v=m.get(k);if(v==null){v=new LinkedHashSet<>();m.put(k,v);}return v;}
+    /** The only place a cover bitmap goes onto a Home ImageView; counts it for its section. */
+    void coverSet(ImageView image,Bitmap b,String section,String key,String src){
+        image.setImageBitmap(b);
+        if(set(coversShown,section).add(key)&&sections.containsKey(section))source(section,src==null?"file":src);
+        lastReport=diagnostics();
+    }
     static final Map<String,String> COVER_SOURCE=Collections.synchronizedMap(new HashMap<String,String>());
     void source(String section,String what){LinkedHashMap<String,Integer> m=sources.get(section);if(m==null){m=new LinkedHashMap<>();sources.put(section,m);}Integer n=m.get(what);m.put(what,n==null?1:n+1);}
     private LinearLayout root,content,chipRow;private ScrollView scroll;private TextView greeting;
@@ -144,7 +156,7 @@ public final class HomeScreen extends ContextThemeWrapper {
         String sig=signature();
         if(sig.equals(lastSignature)&&content.getChildCount()>0&&content.findViewWithTag("home_loading")==null){skipped++;ultra.downloads.NativeIntegration.timeline("render skipped: data unchanged ("+skipped+")");return;}
         lastSignature=sig;
-        content.removeAllViews();generation++;sections.clear();sources.clear();noted.clear();renders++;renderedAt=android.os.SystemClock.uptimeMillis();
+        content.removeAllViews();generation++;sections.clear();sources.clear();noted.clear();coversWanted.clear();coversShown.clear();loggedCovers="";renders++;renderedAt=android.os.SystemClock.uptimeMillis();
         boolean music=chip.equals(HomeLogic.ALL)||chip.equals(HomeLogic.DOWNLOADS);
         List<HomeTile> pick=HomeLogic.pickUp(last,songs,pinned,playlists,HomeLogic.PICK_UP_LIMIT);
         HomeTile heroSong=null;for(HomeTile t:pick)if(t.song()){heroSong=t;break;}
@@ -169,7 +181,10 @@ public final class HomeScreen extends ContextThemeWrapper {
         ultra.downloads.NativeIntegration.timeline("render #"+renders+" "+sectionLine());
     }
     int[] stat(String key){int[] v=sections.get(key);if(v==null){v=new int[3];sections.put(key,v);}return v;}
-    String sectionLine(){StringBuilder b=new StringBuilder();for(Map.Entry<String,int[]> e:sections.entrySet()){if(b.length()>0)b.append(' ');b.append(e.getKey()).append('=').append(e.getValue()[0]);if(e.getValue()[1]>0)b.append(" art ").append(e.getValue()[2]).append('/').append(e.getValue()[1]);}return b.length()==0?"(no sections)":b.toString();}
+    /** Items per section at render time (covers are not known yet; see coverLine). */
+    String sectionLine(){StringBuilder b=new StringBuilder();for(Map.Entry<String,int[]> e:sections.entrySet()){if(b.length()>0)b.append(' ');b.append(e.getKey()).append('=').append(e.getValue()[0]);}return b.length()==0?"(no sections)":b.toString();}
+    /** Covers displayed / wanted per section, from coverSet. */
+    String coverLine(){StringBuilder b=new StringBuilder();for(Map.Entry<String,LinkedHashSet<String>> e:coversWanted.entrySet()){if(b.length()>0)b.append(", ");LinkedHashSet<String> shown=coversShown.get(e.getKey());b.append(e.getKey()).append(' ').append(shown==null?0:shown.size()).append('/').append(e.getValue().size());}return b.length()==0?"(none)":b.toString();}
     /**
      * After a render (DL51): every tile and card fully visible, and any cover that is still missing is requested again.
      * Covers may arrive late on a cold start; nothing stays a blank placeholder once its file exists.
@@ -182,21 +197,15 @@ public final class HomeScreen extends ContextThemeWrapper {
                 if(v instanceof ImageView&&v.getTag() instanceof Object[]){Object[] want=(Object[])v.getTag();if(((ImageView)v).getDrawable()==null){again++;fetch((HomeTile)want[0],(ImageView)v,(Integer)want[1],(String)want[2],false);}}
                 if(v instanceof ViewGroup)for(int k=0;k<((ViewGroup)v).getChildCount();k++)q.add(((ViewGroup)v).getChildAt(k));}
             if(again>0)ultra.downloads.NativeIntegration.timeline("settle: re-requested "+again+" covers");
+            String covers=coverLine();if(!covers.equals(loggedCovers)){loggedCovers=covers;ultra.downloads.NativeIntegration.timeline("covers on screen: "+covers);}
         }},delay);
     }
     /** Download settings > Diagnostics: one line per section of the last render. */
     public String diagnostics(){
         StringBuilder b=new StringBuilder("Ultra Home: render #").append(renders).append(" (").append(skipped).append(" skipped as unchanged), ").append(renders==0?"not rendered yet":((android.os.SystemClock.uptimeMillis()-renderedAt)/1000)+" s ago").append(loading?", loading":"").append(loaded?"":", no data yet").append('\n');
-        // DL53: covers are counted from the screen (cover views of the section that show a bitmap), not from callbacks,
-        // so a cover set in place by any path (cache, late arrival, settle re-request) is counted exactly once.
-        LinkedHashMap<String,int[]> shown=new LinkedHashMap<>();
-        ArrayDeque<View> q=new ArrayDeque<>();if(content!=null)q.add(content);
-        while(!q.isEmpty()){View v=q.poll();
-            if(v instanceof ImageView&&v.getTag() instanceof Object[]){Object[] want=(Object[])v.getTag();String sec=(String)want[2];int[] c=shown.get(sec);if(c==null){c=new int[2];shown.put(sec,c);}c[0]++;if(((ImageView)v).getDrawable()!=null)c[1]++;}
-            if(v instanceof ViewGroup)for(int k=0;k<((ViewGroup)v).getChildCount();k++)q.add(((ViewGroup)v).getChildAt(k));}
         for(Map.Entry<String,int[]> e:sections.entrySet()){
-            int[] c=shown.get(e.getKey());
-            b.append("  ").append(e.getKey()).append(": items ").append(e.getValue()[0]).append(c!=null&&c[0]>0?", covers "+c[1]+"/"+c[0]:"");
+            LinkedHashSet<String> wanted=coversWanted.get(e.getKey()),shown=coversShown.get(e.getKey());
+            b.append("  ").append(e.getKey()).append(": items ").append(e.getValue()[0]).append(wanted!=null&&!wanted.isEmpty()?", covers "+(shown==null?0:shown.size())+"/"+wanted.size():"");
             LinkedHashMap<String,Integer> src=sources.get(e.getKey());if(src!=null&&!src.isEmpty())b.append(" (").append(src.toString().replace("{","").replace("}","")).append(')');
             b.append('\n');}
         return b.toString();
@@ -265,13 +274,13 @@ public final class HomeScreen extends ContextThemeWrapper {
     private final HashSet<String> noted=new HashSet<>();
     private void fetch(final HomeTile t,final ImageView image,final int px,final String section,boolean count){
         final String key=t.key()+"@"+px;image.setTag(new Object[]{t,px,section,key});
-        if(count)stat(section)[1]++;
-        Bitmap hit=COVERS.get(key);if(hit!=null){image.setImageBitmap(hit);if(count){stat(section)[2]++;String src=COVER_SOURCE.get(key);source(section,src==null?"file":src);}return;}
+        set(coversWanted,section).add(key);
+        Bitmap hit=COVERS.get(key);if(hit!=null){coverSet(image,hit,section,key,COVER_SOURCE.get(key));return;}
         final Context app=getApplicationContext();
         try{artIo.execute(new Runnable(){public void run(){final String[] src={"none"};final Bitmap b=HomeSource.art(app,t,px,src);if(b!=null){COVERS.put(key,b);COVER_SOURCE.put(key,src[0]);}
             main.post(new Runnable(){public void run(){Object tag=image.getTag();if(destroyed||!(tag instanceof Object[])||!key.equals(((Object[])tag)[3]))return;
-                if(b==null){if(sections.containsKey(section)&&!noted.contains(key)){noted.add(key);source(section,src[0]);}return;}
-                if(image.getDrawable()==null){image.setImageBitmap(b);int[] st=sections.get(section);if(st!=null&&st[2]<st[1])st[2]++;if(!noted.contains(key)){noted.add(key);source(section,src[0]);}}}});}});}catch(RejectedExecutionException ignored){}
+                if(b==null){if(sections.containsKey(section)&&!noted.contains(key)){noted.add(key);source(section,src[0]);}lastReport=diagnostics();return;}
+                coverSet(image,b,section,key,src[0]);}});}});}catch(RejectedExecutionException ignored){}
     }
     void open(HomeTile t){
         if(t.song())HomeSource.play(this,t.id);
