@@ -18,6 +18,7 @@ public final class NativePages {
     static WeakReference<Activity> host = new WeakReference<>(null);
     static boolean running;
     static String lastSeededIdentity = "";
+    static int lastVisible;
 
     static final Runnable scan = new Runnable() {
         public void run() {
@@ -32,6 +33,10 @@ public final class NativePages {
                 Set<Object> visible = new HashSet<>();
                 RadioContext.libraryVisible = false;
                 visit(manager, visible, 0);
+                // DL49: a newly visible page (Library, Explore, Search...) gets explicit style passes.
+                int signature = visible.size();
+                for (Object page : visible) signature += System.identityHashCode(page);
+                if (signature != lastVisible) { lastVisible = signature; PageSkin.kick("page"); }
                 for (Object page : new ArrayList<>(bindings.keySet())) {
                     if (!visible.contains(page)) detach(page);
                 }
@@ -44,6 +49,7 @@ public final class NativePages {
         if (Looper.myLooper() != Looper.getMainLooper()) return;
         host = new WeakReference<>(activity);
         LibraryViewClean.start(activity);
+        PageSkin.start(activity);
         running = true;
         MAIN.removeCallbacks(scan);
         MAIN.post(scan);
@@ -51,6 +57,7 @@ public final class NativePages {
 
     public static void stop() {
         LibraryViewClean.stop();
+        PageSkin.stop();
         NativeLibrarySelection.unbind();
         running = false;
         RadioContext.libraryVisible = false;

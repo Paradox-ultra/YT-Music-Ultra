@@ -21,3 +21,44 @@ adding a JavaScript runtime. Animation respects Android's animation setting.
 
 Preserved: app name, launcher icon, native navigation and player, playlist copy
 isolation, existing downloader, pinning and selection workflows.
+
+DL33 UI direction
+Product: a calm Home for saved music and Library playlists, plus the same surfaces in Downloads.
+Reference: a "redesigning Spotify" concept (three frames): greeting header, filter chips, large rounded
+cover tiles under "Pick up where you left off", quiet sections underneath. Adapted, not copied: no
+Spotify name, mark, green or layout assets.
+Surfaces: pure #000000 page; flat cards #141414 (inside the #121212 to #181818 band) with 20dp corners;
+cover tiles #181818 behind the art with 16dp corners; hairlines #262626. No gradients anywhere new.
+Type: white primary text, #B3B3B3 secondary text, native YouTube Music text appearances by name.
+Accent: saffron-gold #E8A33D for the selected chip (black text) and the Play pill only. Unselected chips
+#1A1A1A with a hairline and white text. Album art carries every other colour.
+Icons: outlined native vectors resolved by name, drawn outlined glyphs as the fallback (new: house).
+Motion: the existing 180ms fade/rise on tiles, skipped when Android's animator duration scale is off.
+Home: app mark + "Good morning / afternoon / evening" by device time; chips All, Playlists, Downloads,
+Artists, Liked; "Pick up where you left off" row of 156dp tiles; "Your playlists" two-column grid in
+Library order; empty state is one quiet line and an outlined "Open Library" button.
+Downloads: restyled only (cards, chips, Play/Shuffle, search field) plus the Home entry in its header.
+Behaviour, menus, pinning, selection and workflows are unchanged.
+Preserved: app name, launcher icon, native navigation and player, host tabs' native content, downloader,
+Radio, all Library integrations.
+
+DL34 UI direction (supersedes DL33; the owner rejected the Spotify-style look)
+Name: "Quiet Premium / Paradox Ultra", design system "Soft Red x Warm White x Charcoal" (DL34-DESIGN-SPEC.md).
+Reference: the owner's light and dark Library screenshots.
+Themes: both, following the host app's live theme (Palette). Dark page #121010, cards #1C1818 flat with no
+border, elevated #100D0D. Light page #FAF6F7, white cards with a subtle shadow.
+Accent: muted coral #E5484D only (soft red #ED7978 / #F0575C); never a bright or glowing red.
+Chips: fully rounded pills; selected = coral at 30% (dark) / 25% (light) over the page, label #F6F6F6 / #7A2426;
+unselected #191718 / #FFFFFF with #A9A4A4 / #6B6262 labels.
+Header: app mark, "YouTube Music" + coral "Ultra", then a big page title. Sort row with a chevron.
+Hero: subtle left-to-right gradient (#441F20 to #252020, light #F7C0C0 to #FBEBEB), one soft coral wave line,
+coral icon tile, round coral Play. Cards 20dp, art 12-14dp, FAB coral pill "+ New".
+Text #F6F6F6 / #0A0808, secondary #A9A4A4 / #6B6262. Progress line coral.
+Icons: outlined only (native yt_outline_* by name, outlined drawn fallbacks). Media glyphs inside coral play
+circles are the only filled marks, as in the reference. Motion: existing fade/rise, off when animations are off.
+Host-owned and not restyled: stock mini player, bottom bar shape, stock Library/Search/Explore pages.
+
+DL37: the DL34 system extends to the host's Library, Explore and Search pages and the mini player at runtime
+(PageSkin): soft rounded row cards, rounded thumbnails, coral/soft pills, featured Radio card with the coral
+gradient wave and round play mark, coral "+ New" FAB, compact mini player with coral play and progress line,
+coral "Ultra" beside the logo. The bottom tab bar is not touched (handled in the host).

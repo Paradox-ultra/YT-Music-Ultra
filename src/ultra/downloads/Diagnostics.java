@@ -20,13 +20,13 @@ public final class Diagnostics {
  public static void attach(Activity a){owner=new WeakReference<>(a);}
 
  // ---------------------------------------------------------------- log
- public static void event(String kind,String result){if(kind==null||result==null||!kind.matches("[a-z0-9_.-]{1,40}")||!result.matches("[a-z0-9_.:-]{1,60}"))return;synchronized(counts){Integer n=counts.get(kind);counts.put(kind,n==null?1:n+1);latest=kind+"#"+counts.get(kind)+":"+result;append(kind+" "+result);}}
+ public static void event(String kind,String result){if(kind==null||result==null||!kind.matches("[a-z0-9_.-]{1,40}")||!result.matches("[a-z0-9_.:=,/-]{1,80}"))return;synchronized(counts){Integer n=counts.get(kind);counts.put(kind,n==null?1:n+1);latest=kind+"#"+counts.get(kind)+":"+result;append(kind+" "+result);}}
  /** Logs sanitized class names only. Never text, IDs or account data. */
  static void classes(String scope,Collection<String> names){if(scope==null||!scope.matches("[a-z0-9_.-]{1,40}"))return;StringBuilder b=new StringBuilder();int n=0;for(String s:names){String safe=OfferEvidence.safeClassName(s);if(n++>=40){b.append(",...");break;}if(b.length()>0)b.append(',');b.append(safe);}synchronized(counts){append("classes "+scope+" "+(b.length()==0?"-":b));}}
  static void append(String body){try{Context c=Hooks.context();if(c==null)return;File f=new File(c.getFilesDir(),LOG);if(f.length()>16384)new FileOutputStream(f).close();try(FileOutputStream out=new FileOutputStream(f,true)){out.write((System.currentTimeMillis()/1000+" "+body+"\n").getBytes("UTF-8"));}}catch(Throwable ignored){}}
  public static void error(String scope,Throwable e){event(scope,"error-"+e.getClass().getSimpleName().toLowerCase(Locale.US));}
  /** Plain-text diagnostics: latest event, latest class line, rendering sources and the local log. */
- static String text(Context c){StringBuilder text=new StringBuilder("Local hook log. No account data, song IDs, titles or on-screen text are recorded; dialog entries list class names only.\n\n");
+ static String text(Context c){StringBuilder text=new StringBuilder("Local hook log. No account data, song IDs, titles or on-screen text are recorded; dialog entries list class names only.\n\n");text.append(NativeIntegration.homeReport()).append(PageSkin.report());
   text.append("Latest event: ").append(latest).append('\n');text.append("Latest classes: ").append(classLine.isEmpty()?"-":classLine).append("\n\n");
   try{int[] m=LocalAudio.membership(c,Library.all(c));text.append("Playlist membership (current cached catalog): ").append(m[0]).append(" matched, ").append(m[1]).append(" unmatched. Syncing: ").append(PlaylistIndex.syncing).append(".\n\n");}catch(Exception ignored){}
   try{text.append("Native Library order rows: ").append(new org.json.JSONArray(Library.prefs(c).getString("native_playlist_order","[]")).length()).append(".\n\n");}catch(Exception ignored){}

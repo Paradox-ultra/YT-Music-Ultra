@@ -15,6 +15,7 @@ import android.net.Uri;
 import android.os.*;
 import android.provider.*;
 import android.text.*;
+import android.util.TypedValue;
 import android.view.*;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.*;
@@ -27,7 +28,9 @@ import java.util.concurrent.*;
 /**
  * Downloads page mounted inside the host's own fragment_container (see NativeIntegration), so the host bottom navigation
  * and mini-player stay native and in place. Looks follow the host: its live Activity theme, native text appearances,
- * chip_cloud_chip chips, music_menu_item rows and native vector icons, all resolved by name through {@link NativeUi}.
+ * chip_cloud_chip chip contents, music_menu_item rows and native vector icons, all resolved by name through {@link NativeUi}.
+ * DL34 surface system (Palette): brand line + big title, coral chips, sort row, gradient hero card, rounded list cards,
+ * coral "+ New" FAB, in the app's dark or light theme.
  */
 public final class DownloadsScreen extends android.view.ContextThemeWrapper {
     private final Activity host;private final FrameLayout mount;private final Intent sourceIntent;
@@ -51,7 +54,7 @@ public final class DownloadsScreen extends android.view.ContextThemeWrapper {
     private final LinkedHashSet<String> selectedKeys = new LinkedHashSet<>();
     private LinearLayout selectionHeader, selectionActions;
     private TextView selectionTitle;
-    private LinearLayout bar;
+    private LinearLayout bar;private View homeEntry,fab;private TextView sortLabel;private ImageButton heroPlay;
     private final Runnable tick=new Runnable(){public void run(){if(!foreground)return;mediaAccess(false);render();main.postDelayed(this,1200);}};
     private final ViewTreeObserver.OnGlobalLayoutListener insets=new ViewTreeObserver.OnGlobalLayoutListener(){public void onGlobalLayout(){applyInsets();}};
     private int dp(float n){return NativeUi.dp(this,n);}
@@ -60,10 +63,19 @@ public final class DownloadsScreen extends android.view.ContextThemeWrapper {
         int primary=NativeUi.primary(this),secondary=NativeUi.secondary(this);
         root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(NativeUi.background(this));
         // Library-style header: title only, plus native search and settings icons.
-        bar=new LinearLayout(this);bar.setGravity(Gravity.CENTER_VERTICAL);bar.setPadding(dp(16),dp(4),dp(4),0);bar.setMinimumHeight(dp(56));
-        ImageView brand=new ImageView(this);brand.setImageDrawable(NativeUi.appIcon(this));brand.setContentDescription("App icon");LinearLayout.LayoutParams brandParams=new LinearLayout.LayoutParams(dp(32),dp(32));brandParams.setMarginEnd(dp(12));bar.addView(brand,brandParams);TextView title=NativeUi.header(this,"Downloads");title.setTag("header_title");bar.addView(title,new LinearLayout.LayoutParams(0,-2,1));
-        bar.addView(NativeUi.iconButton(this,"yt_outline_search_vd_theme_24","search","Search downloads",new View.OnClickListener(){public void onClick(View v){toggleSearch(!searchOpen);}}),new LinearLayout.LayoutParams(dp(48),dp(48)));
-        bar.addView(NativeUi.iconButton(this,"yt_outline_gear_vd_theme_24","settings","Download settings",new View.OnClickListener(){public void onClick(View v){settings();}}),new LinearLayout.LayoutParams(dp(48),dp(48)));
+        // DL34 header: brand line ("YouTube Music" + coral "Ultra") with outlined search and settings, then the big title.
+        bar=new LinearLayout(this);bar.setOrientation(LinearLayout.VERTICAL);bar.setPadding(dp(16),dp(4),dp(4),0);
+        LinearLayout brandRow=new LinearLayout(this);brandRow.setGravity(Gravity.CENTER_VERTICAL);brandRow.setMinimumHeight(dp(52));
+        brandRow.addView(NativeUi.brand(this),new LinearLayout.LayoutParams(0,-2,1));
+        brandRow.addView(NativeUi.iconButton(this,"yt_outline_search_vd_theme_24","search","Search downloads",new View.OnClickListener(){public void onClick(View v){toggleSearch(!searchOpen);}}),new LinearLayout.LayoutParams(dp(48),dp(48)));
+        brandRow.addView(NativeUi.iconButton(this,"yt_outline_gear_vd_theme_24","settings","Download settings",new View.OnClickListener(){public void onClick(View v){settings();}}),new LinearLayout.LayoutParams(dp(48),dp(48)));
+        bar.addView(brandRow,new LinearLayout.LayoutParams(-1,-2));
+        LinearLayout titleRow=new LinearLayout(this);titleRow.setGravity(Gravity.CENTER_VERTICAL);titleRow.setPadding(0,0,dp(12),0);
+        TextView title=NativeUi.header(this,"Downloads");title.setTextSize(TypedValue.COMPLEX_UNIT_SP,34);title.setTag("header_title");titleRow.addView(title,new LinearLayout.LayoutParams(0,-2,1));
+        // Home entry for hosts without the FEmusic_ultra_home pivot (DL33 builds). Hidden once the host bar has Home.
+        homeEntry=pill("Home","yt_outline_home_vd_theme_24","home",false,new View.OnClickListener(){public void onClick(View v){NativeIntegration.openHome();}});homeEntry.setContentDescription("Open Home");titleRow.addView(homeEntry,new LinearLayout.LayoutParams(-2,dp(36)));
+        homeEntry.setVisibility(NativeIntegration.hostHasHomePivot()?View.GONE:View.VISIBLE);
+        bar.addView(titleRow,new LinearLayout.LayoutParams(-1,-2));
         root.addView(bar,new LinearLayout.LayoutParams(-1,-2));
 
         selectionHeader = new LinearLayout(this);
@@ -102,7 +114,7 @@ public final class DownloadsScreen extends android.view.ContextThemeWrapper {
         selectionActions.setVisibility(View.GONE);
         // Search field, shown from the search icon.
         searchBar=new LinearLayout(this);searchBar.setGravity(Gravity.CENTER_VERTICAL);searchBar.setPadding(dp(12),0,0,0);
-        GradientDrawable field=new GradientDrawable();field.setColor(NativeUi.color(this,"ytm_color_white_at_10pct",0x1affffff));field.setCornerRadius(dp(24));searchBar.setBackground(field);
+        searchBar.setBackground(NativeUi.card(this,Palette.of(this).chipOff,24,true));
         searchBar.addView(NativeUi.icon(this,"yt_outline_search_vd_theme_24","search",secondary,20),new LinearLayout.LayoutParams(dp(20),dp(20)));
         search=new EditText(this);search.setSingleLine(true);search.setBackground(null);search.setTextColor(primary);search.setHintTextColor(secondary);search.setTextSize(16);search.setHint("Search downloads");search.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);search.setPadding(dp(12),0,dp(4),0);
         search.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int a,int c,int f){}public void onTextChanged(CharSequence s,int a,int b,int c){query=s.toString().trim().toLowerCase(Locale.ROOT);render(true);}public void afterTextChanged(Editable e){}});
@@ -114,24 +126,44 @@ public final class DownloadsScreen extends android.view.ContextThemeWrapper {
         chipRow=new LinearLayout(this);chipRow.setGravity(Gravity.CENTER_VERTICAL);int start=NativeUi.dimen(this,"chip_cloud_start_padding",16);chipRow.setPadding(start,dp(8),start,dp(8));chips.addView(chipRow,new FrameLayout.LayoutParams(-2,-2));
         root.addView(chips,new LinearLayout.LayoutParams(-1,-2));
         // Play / Shuffle, shown only when the current view has saved music.
-        actions=new LinearLayout(this);actions.setGravity(Gravity.CENTER_VERTICAL);actions.setPadding(dp(16),dp(4),dp(4),dp(4));
-        actions.addView(pill("Play","yt_outline_play_arrow_vd_theme_24","play",true,new View.OnClickListener(){public void onClick(View v){playAll(false);}}),pillParams());
-        actions.addView(pill("Shuffle","yt_outline_arrow_shuffle_vd_theme_24","shuffle",false,new View.OnClickListener(){public void onClick(View v){playAll(true);}}),pillParams());
+        // Sort row, like the reference's "Recently saved ⌄": the current order opens the same Sort dialog; Shuffle and Play follow.
+        actions=new LinearLayout(this);actions.setGravity(Gravity.CENTER_VERTICAL);actions.setPadding(dp(16),dp(4),dp(8),dp(4));
+        LinearLayout sortRow=new LinearLayout(this);sortRow.setGravity(Gravity.CENTER_VERTICAL);sortRow.setTag("sort");sortRow.setContentDescription("Sort");sortRow.setMinimumHeight(dp(44));sortRow.setClickable(true);sortRow.setBackground(NativeUi.rowBackground(this));
+        sortRow.setOnClickListener(new View.OnClickListener(){public void onClick(View v){sortDialog();}});
+        sortLabel=NativeUi.text(this,"TextAppearance.YouTubeMusic.Body1",16,NativeUi.primary(this),false);sortLabel.setTag("sort_label");sortRow.addView(sortLabel,new LinearLayout.LayoutParams(-2,-2));
+        LinearLayout.LayoutParams chev=new LinearLayout.LayoutParams(dp(20),dp(20));chev.setMarginStart(dp(6));sortRow.addView(NativeUi.icon(this,"yt_outline_chevron_down_vd_theme_24","chevron",NativeUi.primary(this),20),chev);
+        actions.addView(sortRow,new LinearLayout.LayoutParams(-2,-2));
         actions.addView(new View(this),new LinearLayout.LayoutParams(0,1,1));
-        actions.addView(NativeUi.iconButton(this,"yt_outline_menu_sort_vd_theme_24","sort","Sort",new View.OnClickListener(){public void onClick(View v){sortDialog();}}),new LinearLayout.LayoutParams(dp(48),dp(48)));
+        actions.addView(pill("Shuffle","yt_outline_arrow_shuffle_vd_theme_24","shuffle",false,new View.OnClickListener(){public void onClick(View v){playAll(true);}}),pillParams());
+        actions.addView(pill("Play","yt_outline_play_arrow_vd_theme_24","play",true,new View.OnClickListener(){public void onClick(View v){playAll(false);}}),pillParams());
         root.addView(actions,new LinearLayout.LayoutParams(-1,-2));
-        summaryCard=new LinearLayout(this);summaryCard.setOrientation(LinearLayout.VERTICAL);GradientDrawable cardBg=new GradientDrawable();cardBg.setColor(Color.BLACK);cardBg.setStroke(dp(1),0xff262626);cardBg.setCornerRadius(dp(20));summaryCard.setBackground(cardBg);summaryCard.setPadding(dp(14),dp(10),dp(14),dp(10));
-        summary=NativeUi.text(this,"TextAppearance.YouTubeMusic.Title2",14,primary,false);summary.setMaxLines(1);summaryCard.addView(summary,new LinearLayout.LayoutParams(-1,-2));
-        summaryLine2=NativeUi.text(this,"TextAppearance.YouTubeMusic.Subtitle1.Translucent",13,secondary,false);summaryLine2.setMaxLines(1);summaryLine2.setPadding(0,dp(3),0,0);summaryCard.addView(summaryLine2,new LinearLayout.LayoutParams(-1,-2));
-        summaryLine3=NativeUi.text(this,"TextAppearance.YouTubeMusic.Subtitle1.Translucent",13,secondary,false);summaryLine3.setMaxLines(1);summaryLine3.setPadding(0,dp(3),0,0);summaryCard.addView(summaryLine3,new LinearLayout.LayoutParams(-1,-2));
-        LinearLayout.LayoutParams cardParams=new LinearLayout.LayoutParams(-1,-2);cardParams.setMargins(dp(16),dp(2),dp(16),dp(6));root.addView(summaryCard,cardParams);
+        // Hero card (the reference's Radio card): gradient, coral icon tile, saved-music summary and a round coral Play.
+        summaryCard=new LinearLayout(this);summaryCard.setOrientation(LinearLayout.HORIZONTAL);summaryCard.setGravity(Gravity.CENTER_VERTICAL);summaryCard.setTag("hero");summaryCard.setBackground(NativeUi.hero(this));summaryCard.setPadding(dp(14),dp(14),dp(14),dp(14));NativeUi.clip(summaryCard,20);
+        FrameLayout heroIcon=new FrameLayout(this);heroIcon.setBackground(NativeUi.card(this,Palette.blend(Palette.CORAL,Palette.of(this).heroStart,0.18f),14,false));
+        heroIcon.addView(NativeUi.icon(this,"yt_outline_download_vd_theme_24","download",Palette.CORAL,28),new FrameLayout.LayoutParams(dp(28),dp(28),Gravity.CENTER));summaryCard.addView(heroIcon,new LinearLayout.LayoutParams(dp(56),dp(56)));
+        LinearLayout heroText=new LinearLayout(this);heroText.setOrientation(LinearLayout.VERTICAL);
+        summary=NativeUi.text(this,"TextAppearance.YouTubeMusic.Title2",17,primary,true);summary.setMaxLines(1);heroText.addView(summary,new LinearLayout.LayoutParams(-1,-2));
+        summaryLine2=NativeUi.text(this,"TextAppearance.YouTubeMusic.Subtitle1.Translucent",13,secondary,false);summaryLine2.setMaxLines(1);summaryLine2.setPadding(0,dp(3),0,0);heroText.addView(summaryLine2,new LinearLayout.LayoutParams(-1,-2));
+        summaryLine3=NativeUi.text(this,"TextAppearance.YouTubeMusic.Subtitle1.Translucent",13,secondary,false);summaryLine3.setMaxLines(1);summaryLine3.setPadding(0,dp(3),0,0);heroText.addView(summaryLine3,new LinearLayout.LayoutParams(-1,-2));
+        LinearLayout.LayoutParams htp=new LinearLayout.LayoutParams(0,-2,1);htp.setMarginStart(dp(14));htp.setMarginEnd(dp(8));summaryCard.addView(heroText,htp);
+        heroPlay=new ImageButton(this);heroPlay.setImageDrawable(NativeUi.drawable(this,"yt_outline_play_arrow_vd_theme_24","play",0xffffffff));heroPlay.setBackground(NativeUi.circle(Palette.CORAL));heroPlay.setScaleType(ImageView.ScaleType.FIT_CENTER);heroPlay.setPadding(dp(10),dp(10),dp(10),dp(10));heroPlay.setContentDescription("Play downloads");heroPlay.setTag("hero_play");
+        heroPlay.setOnClickListener(new View.OnClickListener(){public void onClick(View v){playAll(false);}});summaryCard.addView(heroPlay,new LinearLayout.LayoutParams(dp(44),dp(44)));
+        LinearLayout.LayoutParams cardParams=new LinearLayout.LayoutParams(-1,-2);cardParams.setMargins(dp(16),dp(4),dp(16),dp(10));root.addView(summaryCard,cardParams);
         scroll=new ScrollView(this){
             @Override public boolean dispatchTouchEvent(MotionEvent e){int a=e.getActionMasked();if(a==MotionEvent.ACTION_DOWN){scrollTouch=true;scrollEpoch++;}lastScrollAt=SystemClock.uptimeMillis();if(a==MotionEvent.ACTION_UP||a==MotionEvent.ACTION_CANCEL)scrollTouch=false;return super.dispatchTouchEvent(e);}
             @Override protected void onScrollChanged(int x,int y,int oldX,int oldY){super.onScrollChanged(x,y,oldX,oldY);if(y!=oldY){lastScrollAt=SystemClock.uptimeMillis();scrollEpoch++;}}
-        };scroll.setClipToPadding(false);scroll.setFillViewport(true);rows=new LinearLayout(this);rows.setOrientation(LinearLayout.VERTICAL);scroll.addView(rows,new FrameLayout.LayoutParams(-1,-2));FrameLayout content=new FrameLayout(this);content.addView(scroll,new FrameLayout.LayoutParams(-1,-1));
-        virtualList=new ListView(this);virtualList.setItemsCanFocus(false);virtualList.setLongClickable(true);virtualList.setOnItemLongClickListener(new AdapterView.OnItemLongClickListener(){public boolean onItemLongClick(AdapterView<?> parent,View row,int position,long id){Object item=parent.getItemAtPosition(position);if(!(item instanceof Library.Item))return false;startSelection(((Library.Item)item).id);return true;}});virtualList.setDivider(null);virtualList.setDividerHeight(0);virtualList.setCacheColorHint(Color.TRANSPARENT);virtualList.setClipToPadding(false);virtualList.setVisibility(View.GONE);
+        };scroll.setClipToPadding(false);scroll.setFillViewport(true);rows=new LinearLayout(this);rows.setOrientation(LinearLayout.VERTICAL);rows.setPadding(dp(16),0,dp(16),0);scroll.addView(rows,new FrameLayout.LayoutParams(-1,-2));FrameLayout content=new FrameLayout(this);content.addView(scroll,new FrameLayout.LayoutParams(-1,-1));
+        virtualList=new ListView(this);virtualList.setItemsCanFocus(false);virtualList.setLongClickable(true);virtualList.setOnItemLongClickListener(new AdapterView.OnItemLongClickListener(){public boolean onItemLongClick(AdapterView<?> parent,View row,int position,long id){Object item=parent.getItemAtPosition(position);if(!(item instanceof Library.Item))return false;startSelection(((Library.Item)item).id);return true;}});virtualList.setDivider(new ColorDrawable(Color.TRANSPARENT));virtualList.setDividerHeight(dp(8));virtualList.setSelector(new ColorDrawable(Color.TRANSPARENT));virtualList.setCacheColorHint(Color.TRANSPARENT);virtualList.setClipToPadding(false);virtualList.setVisibility(View.GONE);
         virtualList.setOnScrollListener(new AbsListView.OnScrollListener(){public void onScrollStateChanged(AbsListView v,int state){scrollTouch=state!=SCROLL_STATE_IDLE;lastScrollAt=SystemClock.uptimeMillis();scrollEpoch++;}public void onScroll(AbsListView v,int first,int count,int total){lastScrollAt=SystemClock.uptimeMillis();}});
-        content.addView(virtualList,new FrameLayout.LayoutParams(-1,-1));root.addView(content,new LinearLayout.LayoutParams(-1,0,1));
+        content.addView(virtualList,new FrameLayout.LayoutParams(-1,-1));
+        // "+ New" coral FAB (Playlists tab): same action as the former "New local playlist" button.
+        LinearLayout newButton=new LinearLayout(this);newButton.setGravity(Gravity.CENTER);newButton.setPadding(dp(18),0,dp(22),0);newButton.setBackground(NativeUi.pill(this,Palette.of(this).fab));newButton.setElevation(dp(3));
+        newButton.addView(NativeUi.icon(this,"yt_outline_add_vd_theme_24","plus",0xffffffff,22),new LinearLayout.LayoutParams(dp(22),dp(22)));
+        TextView newText=NativeUi.text(this,"TextAppearance.YouTubeMusic.Title2",16,0xffffffff,true);newText.setText("New");LinearLayout.LayoutParams ntp=new LinearLayout.LayoutParams(-2,-2);ntp.setMarginStart(dp(8));newButton.addView(newText,ntp);
+        newButton.setTag("action:New local playlist");newButton.setContentDescription("New local playlist");newButton.setClickable(true);newButton.setFocusable(true);
+        newButton.setOnClickListener(new View.OnClickListener(){public void onClick(View v){newLocalPlaylist();}});
+        fab=newButton;fab.setVisibility(View.GONE);content.addView(fab,new FrameLayout.LayoutParams(-2,dp(52),Gravity.BOTTOM|Gravity.END));
+        root.addView(content,new LinearLayout.LayoutParams(-1,0,1));
         root.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener(){public WindowInsets onApplyWindowInsets(View v,WindowInsets wi){applyInsets();return wi;}});
         setContentView(root);root.requestApplyInsets();root.setClickable(true);root.setFocusableInTouchMode(true);root.requestFocus();
         mount.getViewTreeObserver().addOnGlobalLayoutListener(insets);
@@ -140,7 +172,10 @@ public final class DownloadsScreen extends android.view.ContextThemeWrapper {
         if(state!=null)pendingDelete=PermanentDelete.restore(host,this,state.getBundle("permanentDelete"),new Runnable(){public void run(){exitSelection();scannedAt=0;render(true);}});
         mediaAccess(true);PlaylistIndex.sync();
         String playlist=getIntent().getStringExtra("playlist");if(playlist!=null&&state==null)loadPlaylist(playlist);
+        if(state==null&&getIntent().hasExtra("tab"))show(getIntent().getStringExtra("tab"),getIntent().getStringExtra("group"));
     }
+    /** DL33: Home opens a local playlist or an artist here. Only the tab and group change, exactly as tapping them would. */
+    void show(String name,String key){if(name==null||!Arrays.asList(TABS).contains(name))return;if(!DownloadTabs.visible(this).contains(name)){Hooks.message("Restore the "+name+" tab in Download settings to open this here");return;}selectionMode=false;selectedKeys.clear();tab=name;group=key==null?"":key;if(tab.equals("Playlists")&&!group.isEmpty()&&!PlaylistIndex.complete(this,group))PlaylistIndex.focus(group);render(true);}
     protected void onResume(){foreground=true;main.removeCallbacks(tick);tick.run();}
     protected void onPause(){foreground=false;main.removeCallbacks(tick);}
     protected void onDestroy(){io.shutdownNow();try{ViewTreeObserver o=mount.getViewTreeObserver();if(o.isAlive())o.removeOnGlobalLayoutListener(insets);}catch(Throwable ignored){}if(lastSheet!=null&&lastSheet.isShowing())lastSheet.dismiss();}
@@ -164,7 +199,7 @@ public final class DownloadsScreen extends android.view.ContextThemeWrapper {
         if(rows==null)return;
         if(!force&&(scrollTouch||SystemClock.uptimeMillis()-lastScrollAt<250))return;
         ArrayList<Library.Item> list,all;
-        try{all=VoiceRecordings.filter(this,Library.all(this));list=visible();}catch(Exception e){structure="";holders.clear();rows.removeAllViews();TextView t=NativeUi.text(this,"TextAppearance.YouTubeMusic.Body2",14,0xffffb4ab,false);t.setMaxLines(4);t.setText("Downloads could not be read. "+e.getMessage());t.setPadding(dp(16),dp(16),dp(16),dp(16));rows.addView(t);return;}
+        try{all=VoiceRecordings.filter(this,Library.all(this));list=visible();}catch(Exception e){structure="";holders.clear();rows.removeAllViews();TextView t=NativeUi.text(this,"TextAppearance.YouTubeMusic.Body2",14,Palette.of(this).error,false);t.setMaxLines(4);t.setText("Downloads could not be read. "+e.getMessage());t.setPadding(dp(16),dp(16),dp(16),dp(16));rows.addView(t);return;}
         int completed=0,active=0;long bytes=0;boolean any=false,playable=false;
         for(Library.Item i:all){if(i.hidden)continue;any=true;if(i.state.equals("done")){completed++;bytes+=i.total;}if(isActive(i))active++;}
         for(Library.Item i:list)if(i.state.equals("done")){playable=true;break;}
@@ -172,7 +207,8 @@ public final class DownloadsScreen extends android.view.ContextThemeWrapper {
         for(Library.Item i:list)key.append('|').append(i.id).append(':').append(i.state).append(':').append(i.paused).append(':').append(i.error.isEmpty()).append(':').append(i.title).append(':').append(i.artist).append(':').append(i.album);
         summary.setText(completed==0?(active>0?active+" downloading":""):completed+(completed==1?" song • ":" songs • ")+format(bytes)+(active>0?" • "+active+" downloading":""));
         if(tab.equals("Playlists")&&group.isEmpty()&&completed>0){int[] membership=LocalAudio.membership(this,all);summaryLine2.setText(membership[0]+" in playlists • "+membership[1]+" not matched yet");summaryLine2.setVisibility(View.VISIBLE);String sync=PlaylistIndex.syncStatus;boolean showSync=sync!=null&&!sync.isEmpty();summaryLine3.setText(showSync?sync:"");summaryLine3.setVisibility(showSync?View.VISIBLE:View.GONE);}else{summaryLine2.setVisibility(View.GONE);summaryLine3.setVisibility(View.GONE);}
-        summaryCard.setVisibility(completed>0||active>0?View.VISIBLE:View.GONE);
+        summaryCard.setVisibility(completed>0||active>0?View.VISIBLE:View.GONE);if(heroPlay!=null)heroPlay.setVisibility(completed>0?View.VISIBLE:View.GONE);
+        if(sortLabel!=null)sortLabel.setText(SORTS[Math.max(0,Math.min(sort,SORTS.length-1))]);
         if(!force&&key.toString().equals(structure)){for(Library.Item i:list){Holder h=holders.get(i.id);if(h!=null)h.bind(i);}return;}
         structure=key.toString();holders.clear();final int y=scroll.getScrollY(),epoch=scrollEpoch;final int first=virtualList.getFirstVisiblePosition();final View firstView=virtualList.getChildAt(0);final int firstTop=firstView==null?0:firstView.getTop();final boolean wasVirtual=virtualMode;rows.removeAllViews();
         virtualMode=false;virtualList.setVisibility(View.GONE);scroll.setVisibility(View.VISIBLE);
@@ -192,9 +228,10 @@ public final class DownloadsScreen extends android.view.ContextThemeWrapper {
             chips.setVisibility(any||!PlaylistIndex.groups(this).isEmpty()?View.VISIBLE:View.GONE);
             actions.setVisibility(playable&&!(tab.equals("Playlists")&&group.isEmpty())?View.VISIBLE:View.GONE);
         }
+        fab.setVisibility(tab.equals("Playlists")&&group.isEmpty()&&!selectionMode?View.VISIBLE:View.GONE);
         if(tab.equals("Playlists")&&group.isEmpty()){
             LinearLayout createLine=new LinearLayout(this);createLine.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);createLine.setPadding(dp(16),0,dp(8),0);
-            createLine.addView(pill("New local playlist","yt_outline_add_vd_theme_24","plus",false,new View.OnClickListener(){public void onClick(View v){newLocalPlaylist();}}),pillParams());rows.addView(createLine);
+            rows.addView(createLine);
             int playlistStart=rows.getChildCount();
             for(Map.Entry<String,String> e:PlaylistIndex.groups(this).entrySet()){if(!query.isEmpty()&&!e.getValue().toLowerCase(Locale.ROOT).contains(query))continue;ArrayList<Library.Item> found=new ArrayList<>();Set<String> ids=PlaylistIndex.members(this,e.getKey());for(Library.Item i:all)if(!i.hidden&&i.state.equals("done")&&ids.contains(i.id))found.add(i);playlistRow(e.getKey(),e.getValue(),found);}
             if(rows.getChildCount()==playlistStart)empty("Library playlists",PlaylistIndex.syncing?"Syncing your Library playlists...":Library.prefs(this).getString("library_sync_error","Open Library to sync your playlists."),"yt_outline_library_music_vd_theme_24","music");
@@ -241,9 +278,9 @@ public final class DownloadsScreen extends android.view.ContextThemeWrapper {
     }
     private void addChip(View chip){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-2,dp(32));p.setMarginEnd(dp(8));chipRow.addView(chip,p);}
     private LinearLayout.LayoutParams pillParams(){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-2,dp(36));p.setMarginEnd(dp(8));return p;}
-    /** Play (white native pill) and Shuffle (translucent native pill) with native icons. */
+    /** Play (saffron pill, black ink) and Shuffle (#1A1A1A pill with hairline) with native outlined icons. */
     private View pill(String label,String icon,String glyph,boolean filled,View.OnClickListener l){
-        LinearLayout b=new LinearLayout(this);b.setGravity(Gravity.CENTER);int ink=filled?NativeUi.color(this,"ytm_color_black",0xff000000):NativeUi.primary(this);
+        LinearLayout b=new LinearLayout(this);b.setGravity(Gravity.CENTER);int ink=NativeUi.chipInk(this,filled);
         b.addView(NativeUi.icon(this,icon,glyph,ink,20),new LinearLayout.LayoutParams(dp(20),dp(20)));
         TextView t=NativeUi.text(this,"TextAppearance.YouTubeMusic.Title2",14,ink,true);t.setTextColor(ink);t.setText(label);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-2,-2);p.setMarginStart(dp(8));b.addView(t,p);
         b.setBackground(NativeUi.chipBackground(this,filled));if(Build.VERSION.SDK_INT>=23){Drawable ripple=NativeUi.rowBackground(this);if(ripple!=null)b.setForeground(ripple);}
@@ -283,19 +320,22 @@ public final class DownloadsScreen extends android.view.ContextThemeWrapper {
         if("done".equals(i.state)){trackMenu(i);return;}
         final boolean active=isActive(i);NativeUi.dialog(this).setTitle(i.title).setItems(new String[]{active?"Pause download":missing?"Download song":"Resume download","Select",missing?"Cancel":"Delete download"},new DialogInterface.OnClickListener(){public void onClick(DialogInterface d,int w){if(w==1){startSelection(missing?"missing:"+i.id:i.id);return;}if(w==2){if(!missing)deleteConfirm(i);return;}try{if(missing)Hooks.download(i.id);else if(active)DownloadsService.pause(DownloadsScreen.this,i);else DownloadsService.enqueue(DownloadsScreen.this,i.id,i.title);render(true);}catch(Exception e){error(e);}}}).show();
     }
-    private void songRow(final Library.Item i){rows.addView(makeSongRow(i),new LinearLayout.LayoutParams(-1,-2));}
+    private void songRow(final Library.Item i){rows.addView(makeSongRow(i),cardParams());}
+    /** DL34 list card: flat 20dp card in the theme card colour with the theme ripple (light cards get a soft shadow). */
+    private void cardRow(View line){line.setBackground(NativeUi.pressableCard(this,20));NativeUi.lift(line);}
+    private LinearLayout.LayoutParams cardParams(){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.bottomMargin=dp(8);return p;}
     private View makeSongRow(final Library.Item i){
         final boolean done=i.state.equals("done"),active=isActive(i);int secondary=NativeUi.secondary(this);
-        LinearLayout line=new LinearLayout(this);line.setGravity(Gravity.CENTER_VERTICAL);line.setPadding(dp(16),dp(8),dp(4),dp(8));line.setMinimumHeight(dp(72));
-        Drawable ripple=NativeUi.rowBackground(this);if(ripple!=null)line.setBackground(ripple);
+        LinearLayout line=new LinearLayout(this);line.setGravity(Gravity.CENTER_VERTICAL);line.setPadding(dp(12),dp(10),dp(4),dp(10));line.setMinimumHeight(dp(76));
+        cardRow(line);
         line.addView(thumb(i,false,60),new LinearLayout.LayoutParams(dp(60),dp(60)));
         LinearLayout text=new LinearLayout(this);text.setOrientation(LinearLayout.VERTICAL);
         TextView title=NativeUi.text(this,"TextAppearance.YouTubeMusic.ListItemTitle",16,NativeUi.primary(this),true);title.setText(i.title);text.addView(title,new LinearLayout.LayoutParams(-1,-2));
         LinearLayout meta=new LinearLayout(this);meta.setGravity(Gravity.CENTER_VERTICAL);
-        if(done||i.state.equals("failed")){ImageView mark=done?NativeUi.icon(this,"yt_fill_downloaded_vd_theme_24","downloaded",secondary,14):NativeUi.icon(this,"yt_outline_alert_circle_vd_theme_24","alert",0xffffb4ab,14);mark.setContentDescription(done?"Downloaded":"Download failed");mark.setTag(done?"downloaded":"failed");LinearLayout.LayoutParams mp=new LinearLayout.LayoutParams(dp(14),dp(14));mp.setMarginEnd(dp(6));meta.addView(mark,mp);}
+        if(done||i.state.equals("failed")){ImageView mark=done?NativeUi.icon(this,"yt_outline_checkmark_circle_vd_theme_24","downloaded",Palette.CORAL,14):NativeUi.icon(this,"yt_outline_alert_circle_vd_theme_24","alert",Palette.of(this).error,14);mark.setContentDescription(done?"Downloaded":"Download failed");mark.setTag(done?"downloaded":"failed");LinearLayout.LayoutParams mp=new LinearLayout.LayoutParams(dp(14),dp(14));mp.setMarginEnd(dp(6));meta.addView(mark,mp);}
         Holder h=new Holder();h.subtitle=NativeUi.text(this,"TextAppearance.YouTubeMusic.Subtitle1.Translucent",14,secondary,false);if(i.state.equals("failed")){h.subtitle.setSingleLine(false);h.subtitle.setMaxLines(Integer.MAX_VALUE);h.subtitle.setEllipsize(null);h.subtitle.setTextIsSelectable(false);}meta.addView(h.subtitle,new LinearLayout.LayoutParams(0,-2,1));
         LinearLayout.LayoutParams metaParams=new LinearLayout.LayoutParams(-1,-2);metaParams.topMargin=dp(2);text.addView(meta,metaParams);
-        if(active){h.progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);h.progress.setMax(100);h.progress.setProgressTintList(ColorStateList.valueOf(NativeUi.primary(this)));h.progress.setProgressBackgroundTintList(ColorStateList.valueOf(0x33ffffff));LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(-1,dp(2));pp.topMargin=dp(6);text.addView(h.progress,pp);}
+        if(active){h.progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);h.progress.setMax(100);h.progress.setProgressTintList(ColorStateList.valueOf(Palette.of(this).progress));h.progress.setProgressBackgroundTintList(ColorStateList.valueOf(Palette.of(this).hairline));LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(-1,dp(2));pp.topMargin=dp(6);text.addView(h.progress,pp);}
         h.bind(i);holders.put(i.id,h);
         LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(0,-2,1);tp.setMarginStart(dp(16));line.addView(text,tp);
         View.OnClickListener act=new View.OnClickListener(){public void onClick(View v){if(done){trackMenu(i);return;}try{if(isActive(i))DownloadsService.pause(DownloadsScreen.this,i);else DownloadsService.enqueue(DownloadsScreen.this,i.id,i.title);render(true);}catch(Exception e){error(e);}}};
@@ -327,8 +367,8 @@ public final class DownloadsScreen extends android.view.ContextThemeWrapper {
     }
     private void groupRow(final String name,final ArrayList<Library.Item> items){
         boolean artist=tab.equals("Artists");
-        LinearLayout line=new LinearLayout(this);line.setGravity(Gravity.CENTER_VERTICAL);line.setPadding(dp(16),dp(8),dp(16),dp(8));line.setMinimumHeight(dp(72));
-        Drawable ripple=NativeUi.rowBackground(this);if(ripple!=null)line.setBackground(ripple);
+        LinearLayout line=new LinearLayout(this);line.setGravity(Gravity.CENTER_VERTICAL);line.setPadding(dp(12),dp(10),dp(4),dp(10));line.setMinimumHeight(dp(76));
+        cardRow(line);
         line.addView(thumb(items.get(0),artist,60),new LinearLayout.LayoutParams(dp(60),dp(60)));
         LinearLayout text=new LinearLayout(this);text.setOrientation(LinearLayout.VERTICAL);
         TextView title=NativeUi.text(this,"TextAppearance.YouTubeMusic.ListItemTitle",16,NativeUi.primary(this),true);title.setText(name);text.addView(title,new LinearLayout.LayoutParams(-1,-2));
@@ -359,7 +399,7 @@ public final class DownloadsScreen extends android.view.ContextThemeWrapper {
             line.setOnLongClickListener(new View.OnLongClickListener(){public boolean onLongClick(View v){selectionMode=true;selectedKeys.clear();selectedKeys.add(name);render(true);return true;}});
         }
         line.addView(more(new View.OnClickListener(){public void onClick(View v){rowMenu(name,name,new Runnable(){public void run(){group=name;render(true);}},items);}}),new LinearLayout.LayoutParams(dp(48),dp(48)));
-        line.setTag("group:"+name);rows.addView(line,new LinearLayout.LayoutParams(-1,-2));
+        line.setTag("group:"+name);rows.addView(line,cardParams());
     }
     private void empty(String heading,String copy,String icon,String glyph){
         LinearLayout e=new LinearLayout(this);e.setOrientation(LinearLayout.VERTICAL);e.setGravity(Gravity.CENTER_HORIZONTAL);e.setPadding(dp(32),dp(72),dp(32),dp(32));e.setTag("empty");
@@ -382,7 +422,19 @@ public final class DownloadsScreen extends android.view.ContextThemeWrapper {
         Rect area=screen(mount),window=screen(decor);int y=area==null?0:area.top;int safe=uncoveredTop(top,y);
         if(root.getPaddingTop()!=safe)root.setPadding(0,safe,0,0);
         int nav=area==null||window==null?0:Math.max(0,area.bottom-(window.bottom-bottom));
-        int want=Math.max(overlayInset(mount),nav)+dp(16);if(want!=inset){inset=want;scroll.setPadding(0,0,0,want);virtualList.setPadding(0,0,0,want);}
+        int want=Math.max(overlayInset(mount),nav)+dp(16);if(want!=inset){inset=want;scroll.setPadding(0,0,0,want);virtualList.setPadding(dp(16),0,dp(16),want);if(fab!=null){FrameLayout.LayoutParams fp=(FrameLayout.LayoutParams)fab.getLayoutParams();fp.setMargins(0,0,dp(16),want-dp(4));fab.setLayoutParams(fp);}}
+    }
+    /**
+     * DL33: the same top/bottom inset computation as {@link #applyInsets}, for other screens mounted in fragment_container
+     * (Home). Returns {top padding, bottom padding} in px; the bottom already includes the 16dp breathing room.
+     */
+    public static int[] contentInsets(Activity host,View mount){
+        View decor=host.getWindow().getDecorView();WindowInsets wi=decor.getRootWindowInsets();int top=0,bottom=0;
+        if(wi!=null){top=wi.getSystemWindowInsetTop();bottom=wi.getSystemWindowInsetBottom();if(Build.VERSION.SDK_INT>=28&&wi.getDisplayCutout()!=null)top=Math.max(top,wi.getDisplayCutout().getSafeInsetTop());}
+        if(top==0&&(host.getWindow().getAttributes().flags&WindowManager.LayoutParams.FLAG_FULLSCREEN)==0){Rect visible=new Rect();decor.getWindowVisibleDisplayFrame(visible);top=visible.top;int r=host.getResources().getIdentifier("status_bar_height","dimen","android");if(top<=0&&r!=0)top=host.getResources().getDimensionPixelSize(r);}
+        Rect area=screen(mount),window=screen(decor);int y=area==null?0:area.top;
+        int nav=area==null||window==null?0:Math.max(0,area.bottom-(window.bottom-bottom));
+        return new int[]{uncoveredTop(top,y),Math.max(overlayInset(mount),nav)+NativeUi.dp(host,16)};
     }
     static int uncoveredTop(int systemTop,int contentTop){return Math.max(0,systemTop-Math.max(0,contentTop));}
     /**
@@ -404,7 +456,8 @@ public final class DownloadsScreen extends android.view.ContextThemeWrapper {
     private void nativePlay(ArrayList<String> ids,int index)throws Exception{NativePlayback.start(this,ids,index);}
     private void playOne(Library.Item i){try{ArrayList<String> ids=playable();nativePlay(ids,Math.max(0,ids.indexOf(i.id)));}catch(Exception e){error(e);}}
     private void playAll(boolean shuffle){try{ArrayList<String> ids=playable();if(ids.isEmpty()){Hooks.message("No saved audio in this view");return;}if(shuffle)Collections.shuffle(ids);nativePlay(ids,0);}catch(Exception e){error(e);}}
-    private void sortDialog(){NativeUi.dialog(this).setTitle("Sort").setSingleChoiceItems(new String[]{"Recently downloaded","Title A to Z","Artist A to Z","Largest first"},sort,new DialogInterface.OnClickListener(){public void onClick(DialogInterface d,int which){sort=which;d.dismiss();render(true);}}).show();}
+    static final String[] SORTS={"Recently downloaded","Title A to Z","Artist A to Z","Largest first"};
+    private void sortDialog(){NativeUi.dialog(this).setTitle("Sort").setSingleChoiceItems(SORTS,sort,new DialogInterface.OnClickListener(){public void onClick(DialogInterface d,int which){sort=which;d.dismiss();render(true);}}).show();}
 
     // ------------------------------------------------------------------ track menu (native music_menu_title + music_menu_item rows)
     private void trackMenu(final Library.Item i){
@@ -443,7 +496,7 @@ public final class DownloadsScreen extends android.view.ContextThemeWrapper {
         TextView t=NativeUi.text(this,"TextAppearance.YouTubeMusic.ListItemTitle",16,NativeUi.primary(this),true);t.setMaxLines(2);t.setText(title);text.addView(t);
         TextView s=NativeUi.text(this,"TextAppearance.YouTubeMusic.Subtitle1.Translucent",14,NativeUi.secondary(this),false);s.setText(subtitle);text.addView(s);
         LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(0,-2,1);tp.setMarginStart(dp(12));line.addView(text,tp);box.addView(line);
-        View divider=new View(this);divider.setBackgroundColor(NativeUi.color(this,"music_shelf_separator_light",0x1affffff));box.addView(divider,new LinearLayout.LayoutParams(-1,Math.max(1,dp(1)/2)));
+        View divider=new View(this);divider.setBackgroundColor(Palette.of(this).hairline);box.addView(divider,new LinearLayout.LayoutParams(-1,Math.max(1,dp(1)/2)));
         return box;
     }
 
@@ -461,7 +514,8 @@ public final class DownloadsScreen extends android.view.ContextThemeWrapper {
     private void settings(){
         final Switch voice=new Switch(this);voice.setText("Show voice recordings");voice.setTextSize(16);voice.setTextColor(NativeUi.primary(this));voice.setPadding(dp(20),dp(12),dp(20),dp(12));voice.setMinimumHeight(dp(64));voice.setTag("show_voice_recordings");voice.setChecked(VoiceRecordings.showing(this));
         voice.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener(){public void onCheckedChanged(CompoundButton b,boolean checked){VoiceRecordings.set(DownloadsScreen.this,checked);selectedKeys.clear();selectionMode=false;render(true);}});
-        NativeUi.dialog(this).setTitle("Download settings").setCustomTitle(voice).setItems(new String[]{"Audio quality","Download location","Music folder name","Folder organization","Scan device audio and playlists","Hide completed history","Delete all downloads","About this downloader","Diagnostics","Restore download tabs"},new DialogInterface.OnClickListener(){public void onClick(DialogInterface d,int which){
+        NativeUi.dialog(this).setTitle("Download settings").setCustomTitle(voice).setItems(new String[]{"Audio quality","Download location","Music folder name","Folder organization","Scan device audio and playlists","Hide completed history","Delete all downloads","About this downloader","Diagnostics","Restore download tabs",PageSkin.enabled(this)?"App page style: on":"App page style: off"},new DialogInterface.OnClickListener(){public void onClick(DialogInterface d,int which){
+        if(which==10){boolean on=!PageSkin.enabled(DownloadsScreen.this);PageSkin.set(DownloadsScreen.this,on);Hooks.message(on?"Quiet Premium style on for Library, Explore and Search":"Library, Explore and Search use the stock look");}
         if(which==0)NativeUi.dialog(DownloadsScreen.this).setTitle("Audio quality").setItems(new String[]{"Best available source audio","AAC / M4A preferred","Data saver"},new DialogInterface.OnClickListener(){public void onClick(DialogInterface d,int w){Library.prefs(DownloadsScreen.this).edit().putString("quality",new String[]{"best","aac","saver"}[w]).apply();Hooks.message("Applies to new downloads. No audio is converted to fake lossless.");}}).show();
         if(which==1)NativeUi.dialog(DownloadsScreen.this).setTitle("Download location").setMessage("Default: Music/"+Library.prefs(DownloadsScreen.this).getString("folder","YT Music Ultra")+"\nSelect a folder for future downloads, including an SD card. Existing files stay where they are.").setPositiveButton("Choose folder",new DialogInterface.OnClickListener(){public void onClick(DialogInterface d,int w){startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION),91);}}).setNeutralButton("Use Music folder",new DialogInterface.OnClickListener(){public void onClick(DialogInterface d,int w){Library.prefs(DownloadsScreen.this).edit().remove("tree").apply();}}).setNegativeButton("Cancel",null).show();
         if(which==2){final EditText name=new EditText(DownloadsScreen.this);name.setSingleLine(true);name.setText(Library.prefs(DownloadsScreen.this).getString("folder","YT Music Ultra"));NativeUi.dialog(DownloadsScreen.this).setTitle("Folder inside Music").setView(name).setPositiveButton("Save",new DialogInterface.OnClickListener(){public void onClick(DialogInterface d,int w){Library.prefs(DownloadsScreen.this).edit().putString("folder",Transfer.safeName(name.getText().toString())).apply();}}).setNegativeButton("Cancel",null).show();}
@@ -473,7 +527,7 @@ public final class DownloadsScreen extends android.view.ContextThemeWrapper {
     private void hideHistory(){NativeUi.dialog(this).setTitle("Hide completed history?").setMessage("Saved audio stays on storage. Active downloads stay visible.").setPositiveButton("Hide history",new DialogInterface.OnClickListener(){public void onClick(DialogInterface d,int w){try{for(Library.Item i:Library.all(DownloadsScreen.this))if(i.state.equals("done"))Library.forget(DownloadsScreen.this,i);render(true);}catch(Exception e){error(e);}}}).setNegativeButton("Cancel",null).show();}
     private void deleteAll(){NativeUi.dialog(this).setTitle("Delete all downloads?").setMessage("Active downloads will be paused, then only tracked download files and partials will be deleted. This cannot be undone. Unrelated files are not touched.").setPositiveButton("Delete all",new DialogInterface.OnClickListener(){public void onClick(DialogInterface d,int w){io.execute(new Runnable(){public void run(){int failed=0;try{synchronized(Library.LOCK){Library.wiping=true;for(Library.Item i:Library.all(DownloadsScreen.this))i.paused=true;}long until=SystemClock.elapsedRealtime()+60000;while(DownloadsService.runningAny()&&SystemClock.elapsedRealtime()<until)Thread.sleep(200);if(DownloadsService.runningAny())throw new IOException("Download connections have not stopped. Nothing was deleted. Try again.");for(Library.Item i:Library.all(DownloadsScreen.this)){try{if(!i.imported)Storage.delete(DownloadsScreen.this,i);Library.clearPartial(DownloadsScreen.this,i);Library.remove(DownloadsScreen.this,i);}catch(Exception e){failed++;i.state="failed";i.error="Could not delete: "+e.getMessage();Library.save(DownloadsScreen.this);}}Hooks.message(failed==0?"Tracked downloads deleted":failed+" downloads could not be deleted and remain listed");}catch(Exception e){error(e);}finally{synchronized(Library.LOCK){Library.wiping=false;}refresh();}}});}}).setNegativeButton("Cancel",null).show();}
     private void mediaAccess(boolean ask){if(!LocalAudio.allowed(this)){if(ask&&!mediaRequested){mediaRequested=true;requestPermissions(new String[]{LocalAudio.permission()},92);}return;}if(mediaScanning||scannedAt!=0)return;mediaScanning=true;io.execute(new Runnable(){public void run(){try{int n=LocalAudio.scan(DownloadsScreen.this);scannedAt=SystemClock.elapsedRealtime();if(n>0)Hooks.message(n+" existing audio files found");}catch(Exception e){Diagnostics.error("local_scan",e);}finally{mediaScanning=false;refresh();}}});}
-    private void playlistRow(final String id,final String name,final ArrayList<Library.Item> items){LinearLayout line=new LinearLayout(this);line.setTag("playlist:"+id);line.setGravity(Gravity.CENTER_VERTICAL);line.setPadding(dp(16),dp(8),dp(16),dp(8));line.setMinimumHeight(dp(72));Library.Item cover=new Library.Item();cover.id="playlist_"+id;cover.artUrl=PlaylistIndex.art(this,id);if(UnmatchedDownloads.is(id))line.addView(SelectionStyle.unmatched(this),new LinearLayout.LayoutParams(dp(60),dp(60)));else if(!cover.artUrl.isEmpty())line.addView(thumb(cover,false,60),new LinearLayout.LayoutParams(dp(60),dp(60)));else line.addView(playlistCover(name,items,60),new LinearLayout.LayoutParams(dp(60),dp(60)));LinearLayout texts=new LinearLayout(this);texts.setOrientation(LinearLayout.VERTICAL);TextView title=NativeUi.text(this,"TextAppearance.YouTubeMusic.Title2",16,NativeUi.primary(this),false);title.setText(name);texts.addView(title);TextView sub=NativeUi.text(this,"TextAppearance.YouTubeMusic.Subtitle1.Translucent",14,NativeUi.secondary(this),false);int count=PlaylistIndex.total(this,id);sub.setText(UnmatchedDownloads.is(id)?items.size()+" downloaded • Auto playlist":items.size()+" downloaded"+(count>0||PlaylistIndex.complete(this,id)?" • "+count+(PlaylistIndex.complete(this,id)?(count==1?" song":" songs"):" indexed songs • Incomplete"):" • Contents not synced"));if(!UnmatchedDownloads.is(id)&&!id.startsWith("local:"))sub.append(" • Local copy");sub.setSingleLine(false);sub.setMaxLines(2);sub.setEllipsize(android.text.TextUtils.TruncateAt.END);texts.addView(sub);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);lp.setMarginStart(dp(16));line.addView(texts,lp);if(selectionMode){
+    private void playlistRow(final String id,final String name,final ArrayList<Library.Item> items){LinearLayout line=new LinearLayout(this);line.setTag("playlist:"+id);line.setGravity(Gravity.CENTER_VERTICAL);line.setPadding(dp(12),dp(10),dp(4),dp(10));line.setMinimumHeight(dp(76));cardRow(line);Library.Item cover=new Library.Item();cover.id="playlist_"+id;cover.artUrl=PlaylistIndex.art(this,id);if(UnmatchedDownloads.is(id))line.addView(SelectionStyle.unmatched(this),new LinearLayout.LayoutParams(dp(60),dp(60)));else if(!cover.artUrl.isEmpty())line.addView(thumb(cover,false,60),new LinearLayout.LayoutParams(dp(60),dp(60)));else line.addView(playlistCover(name,items,60),new LinearLayout.LayoutParams(dp(60),dp(60)));LinearLayout texts=new LinearLayout(this);texts.setOrientation(LinearLayout.VERTICAL);TextView title=NativeUi.text(this,"TextAppearance.YouTubeMusic.Title2",16,NativeUi.primary(this),false);title.setText(name);texts.addView(title);TextView sub=NativeUi.text(this,"TextAppearance.YouTubeMusic.Subtitle1.Translucent",14,NativeUi.secondary(this),false);int count=PlaylistIndex.total(this,id);sub.setText(UnmatchedDownloads.is(id)?items.size()+" downloaded • Auto playlist":items.size()+" downloaded"+(count>0||PlaylistIndex.complete(this,id)?" • "+count+(PlaylistIndex.complete(this,id)?(count==1?" song":" songs"):" indexed songs • Incomplete"):" • Contents not synced"));if(!UnmatchedDownloads.is(id)&&!id.startsWith("local:"))sub.append(" • Local copy");sub.setSingleLine(false);sub.setMaxLines(2);sub.setEllipsize(android.text.TextUtils.TruncateAt.END);texts.addView(sub);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);lp.setMarginStart(dp(16));line.addView(texts,lp);if(selectionMode){
             CheckBox cb = new CheckBox(this);
             cb.setTag("row_checkbox");
             cb.setChecked(selectedKeys.contains(id));
@@ -496,8 +550,8 @@ public final class DownloadsScreen extends android.view.ContextThemeWrapper {
             line.setOnLongClickListener(new View.OnLongClickListener(){public boolean onLongClick(View v){selectionMode=true;selectedKeys.clear();selectedKeys.add(id);render(true);return true;}});
         }
         line.addView(more(new View.OnClickListener(){public void onClick(View v){rowMenu(id,name,new Runnable(){public void run(){group=id;if(!PlaylistIndex.complete(DownloadsScreen.this,id))PlaylistIndex.focus(id);render(true);}},items);}}),new LinearLayout.LayoutParams(dp(48),dp(48)));
-        rows.addView(line);}
-    private void missingRow(final Library.Item i){LinearLayout line=new LinearLayout(this);line.setGravity(Gravity.CENTER_VERTICAL);line.setPadding(dp(16),dp(8),dp(16),dp(8));line.setMinimumHeight(dp(72));line.addView(NativeUi.icon(this,"yt_outline_music_note_vd_theme_24","music",NativeUi.secondary(this),24),new LinearLayout.LayoutParams(dp(56),dp(56)));LinearLayout text=new LinearLayout(this);text.setOrientation(LinearLayout.VERTICAL);TextView title=NativeUi.text(this,"TextAppearance.YouTubeMusic.ListItemTitle",16,NativeUi.secondary(this),true);title.setText(i.title);text.addView(title);TextView sub=NativeUi.text(this,"TextAppearance.YouTubeMusic.Subtitle1.Translucent",14,NativeUi.secondary(this),false);sub.setText("Not downloaded"+(i.artist.isEmpty()?"":" • "+i.artist));text.addView(sub);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);lp.setMarginStart(dp(16));line.addView(text,lp);line.addView(more(new View.OnClickListener(){public void onClick(View v){downloadMenu(i,true);}}),new LinearLayout.LayoutParams(dp(48),dp(48)));line.setTag("unavailable:"+i.id);
+        rows.addView(line,cardParams());}
+    private void missingRow(final Library.Item i){LinearLayout line=new LinearLayout(this);line.setGravity(Gravity.CENTER_VERTICAL);line.setPadding(dp(12),dp(10),dp(4),dp(10));line.setMinimumHeight(dp(76));cardRow(line);line.addView(NativeUi.icon(this,"yt_outline_music_note_vd_theme_24","music",NativeUi.secondary(this),24),new LinearLayout.LayoutParams(dp(56),dp(56)));LinearLayout text=new LinearLayout(this);text.setOrientation(LinearLayout.VERTICAL);TextView title=NativeUi.text(this,"TextAppearance.YouTubeMusic.ListItemTitle",16,NativeUi.secondary(this),true);title.setText(i.title);text.addView(title);TextView sub=NativeUi.text(this,"TextAppearance.YouTubeMusic.Subtitle1.Translucent",14,NativeUi.secondary(this),false);sub.setText("Not downloaded"+(i.artist.isEmpty()?"":" • "+i.artist));text.addView(sub);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);lp.setMarginStart(dp(16));line.addView(text,lp);line.addView(more(new View.OnClickListener(){public void onClick(View v){downloadMenu(i,true);}}),new LinearLayout.LayoutParams(dp(48),dp(48)));line.setTag("unavailable:"+i.id);
         final String mKey = "missing:" + i.id;
         if(selectionMode){
             CheckBox cb = new CheckBox(this);
@@ -520,7 +574,7 @@ public final class DownloadsScreen extends android.view.ContextThemeWrapper {
         } else {
             line.setOnLongClickListener(new View.OnLongClickListener(){public boolean onLongClick(View v){selectionMode=true;selectedKeys.clear();selectedKeys.add(mKey);render(true);return true;}});
         }
-        rows.addView(line);}
+        rows.addView(line,cardParams());}
     public void onRequestPermissionsResult(int request,String[] permissions,int[] results){if(request==92&&results.length>0&&results[0]==PackageManager.PERMISSION_GRANTED){scannedAt=0;mediaAccess(false);PlaylistIndex.sync();}}
     private void refresh(){main.post(new Runnable(){public void run(){if(!isFinishing()&&!isDestroyed())render(true);}});}
     private void error(final Exception e){main.post(new Runnable(){public void run(){if(!isFinishing()&&!isDestroyed())NativeUi.dialog(DownloadsScreen.this).setTitle("Downloads").setMessage(e.getMessage()==null?e.getClass().getSimpleName():e.getMessage()).setPositiveButton("Close",null).show();}});}

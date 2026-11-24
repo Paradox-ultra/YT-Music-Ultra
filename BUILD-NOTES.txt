@@ -1,1 +1,189 @@
 Use the accompanying release README for toolchain prerequisites. Signing keys are deliberately excluded.
+
+DL33 BUILD NOTES (Home and restyle, module-only)
+
+SHIPPED DIFF
+Unchanged rule: AndroidManifest version bump plus the module dex only. No base-APK resource, smali or
+asset changes. No new permissions. No new network calls: Home reads only data the module already holds
+(Library downloads, stored Library roster and playlist index, pins, cached artwork files on disk).
+
+HOME TAB IN THE BOTTOM BAR: DEFERRED (needs a host change)
+The Downloads destination is not added by this module. It is added by host bytecode already present in the
+base APK: lac.ultraDownloadPivots(List) inserts the FEmusic_ultra_downloads pivot after Explore (called from
+the host NavigationPatch), and lac.t(bbxl) routes that pivot to NativeIntegration.fromTab + Hooks.open,
+redirects FEmusic_home to Search and calls NativeIntegration.leave for every other tab. The module only
+receives those calls. Adding a Home pivot first in the bar "the same way" therefore means editing lac in the
+base APK, which breaks the manifest+dex rule and audit.py's changed-file check. Runtime reflection into the
+TabLayout was rejected as fragile. Decision (parent agent, DL33): module-only. Home opens from the Home pill at
+the top of Downloads and is mounted in the same fragment_container, as a layer above Downloads. Bar order stays
+Library, Search, Explore, Downloads; the default landing tab is unchanged.
+To add the real tab later (host side): add a Home pivot (for example FEmusic_ultra_home, outlined house icon)
+first in lac.ultraDownloadPivots, and a branch in lac.t that calls NativeIntegration.fromTab(this) and
+NativeIntegration.openHome(); widen audit.py's changed-file set to match.
+
+HOME BEHAVIOUR
+- Back on Home closes Home and resumes Downloads underneath. Any host tab change (leave/closePanel) closes both.
+- Home is not restored after an Activity recreation (rotation, process death); Downloads is, as before.
+- Song tiles play through NativePlayback (native player and queue), queueing the other recent downloads.
+- Playlist tiles: no in-module path that opens a native playlist page from module UI was found in this source
+  (Downloads opens its own local view; Library pages are opened by the host). Home hands
+  https://music.youtube.com/playlist?list=<id> to this app's own link handling (Intent.setPackage(own package),
+  same link format the Library select mode already shares). If nothing in the app accepts it, the playlist's
+  downloaded songs open in Downloads instead. NOT verified on a signed-in device: please check that tapping a
+  playlist tile opens the native playlist page.
+- Artist tiles open that artist's group in Downloads > Artists. Long-press is omitted.
+- Pick up where you left off, fallback order: last played song (if downloaded), recent downloads (max 6), pinned
+  playlists, then the remaining Library playlists; max 10 tiles, no duplicates.
+- Your playlists: same names and order as Downloads > Playlists (native Library order, pins, Liked merged);
+  device-only local playlists and Unmatched songs stay in Downloads.
+
+TESTS
+colab-QA.py now also runs DL33Test: 181 tests (169 existing + 12 new), all passing on Java 17.
+New coverage: greeting by hour, chip filtering, pick-up fallback order, grid per chip, data sources, playlist
+link scoping, Home rendering, empty state, Downloads restyle with unchanged chip behaviour, Home layer
+open/back/leave, animator-duration setting.
+Unlisted legacy suites (DownloadsUiTest, LikedPlaylistsTest, NativePinMenuTest) have the same 14 failures on
+the untouched DL32 source as after DL33; nothing new fails.
+
+TOOLCHAIN NOTE
+dl.google.com must be reachable. Install monitor-1.7.2 and tracing-1.1.0 classes.jar as plain local Maven JARs.
+Behind an HTTPS proxy, Maven also needs a <proxy> entry in ~/.m2/settings.xml.
+
+DL34 BUILD NOTES (supersedes the DL33 look; see DL34-IMPLEMENTATION.md for the host contract)
+- Design: DL34-DESIGN-SPEC.md tokens in Palette.java (dark and light, picked from the host Activity theme).
+- Home tab: host smali is approved for DL34. Contract: lac.t calls
+  NativeIntegration.fromTab(Ljava/lang/Object;Ljava/lang/String;)Z with (this, brso.e) and returns when true;
+  lac.ultraDownloadPivots builds Home (FEmusic_ultra_home, bmlj.er) and Downloads (FEmusic_ultra_downloads,
+  bmlj.o) with lac.s and returns UltraPivots.order(list, home, downloads). Exact smali in DL34-IMPLEMENTATION.md.
+- Without the host change the dex still works on DL33 hosts: Home opens from the Downloads header.
+- Tests: colab-QA.py runs 192 (181 existing incl. updated DL28/DL33 colour checks, DL34Test 9, DL34PivotOrderTest 2).
+  Legacy unlisted suites: the same 14 pre-existing failures as the untouched DL32 source, nothing new.
+- Dex: fresh target/classes -> module.jar -> Build Tools 35.0.0 d8 (8.6.2-dev) --release --min-api 26
+  --lib android.jar --classpath host-jvm.jar -> classes9.dex. Module-side audit checks pass; APK-level audit not run.
+
+DL37 BUILD NOTES (module only; no host change needed beyond the DL34 smali)
+- Cold start opens Home: StartTab, once per process on the first attach, waits for the host bottom bar and its own
+  start-tab choice, then selects the FEmusic_ultra_home tab through the bar (UltraStartTab: the TabLayout's own
+  select, so lac.f -> lac.t -> NativeIntegration.fromTab runs). Re-checked once after 700 ms in case the host's
+  restore overrides it. Launches for a Downloads notification, a link, search, media or share are left as launched.
+  Back from Home still returns to Library. Without the DL34 Home pivot nothing changes. Status in Diagnostics.
+- Host pages styled at runtime (PageSkin), debounced on layout/scroll: page surfaces, list rows as rounded cards
+  (InsetDrawable backgrounds, no re-layout), rounded thumbnails, Radio row as the featured coral card, chips,
+  "+ New" FAB, search fields, text colours, the mini player (card, coral play, coral progress), coral "Ultra"
+  beside the logo. Tab bar subtree and module mounts are excluded. Originals are kept and restored when switched
+  off: Download settings > "App page style". What matched is listed in Diagnostics.
+- Not verifiable here: host page view trees and resource names exist only on the device. Litho-drawn rows that
+  expose no ImageView/TextView keep the stock look; the mini player is matched by ids containing "mini_player".
+- Tests: 198 (192 + DL37Test 6). Legacy unlisted suites: the same 14 pre-existing failures.
+
+DL37.1 (device report: cold launch on A13 still landed on Library)
+- Cause: the bottom bar binds twice in the first second; the stock last-tab restore follows the late pivot data,
+  after the single 700 ms recheck. Fix in StartTab: after the first successful select, Home is re-checked every
+  RECHECK_MS (700 ms) and re-selected whenever another tab took over, until the 8 s deadline. "Already Home" keeps
+  the loop running. A "no Home pivot" answer no longer ends the wait early (an early bind can lack the pivot data);
+  it is reported only at the deadline. Enforcement stops at the user's first touch (delegating Window.Callback
+  proxy, removed when the window ends) so a tab picked during startup is not overridden.
+- Intent-purpose skip unchanged. Diagnostics: same status strings plus "start tab: stopped at first touch, ..."; the
+  final outcome is logged as start_tab home-kept-<selects> / touch-home / touch-unchanged / no-home-pivot / timeout.
+- Tests: 200 (DL37Test now 8). Legacy unlisted suites: same 14 pre-existing failures.
+
+DL38 (PageSkin on device ids; start tab moved host-side)
+- StartTab and UltraStartTab removed from the dex (the DL37.1 sticky version was never shipped as final).
+- PageSkin matches the device's resource ids (uiautomator dumps, DL37/DL39), resolved by name at runtime with
+  getIdentifier(name, "id", "app.rvx.android.apps.youtube.musiy"); unknown names resolve to 0 and are listed in
+  Diagnostics. Library: header_container, app_bar, chip_cloud / chip_cloud_chip_text, music_sort_filter_button_container,
+  two_column_item_content_parent rows (card on the list child), title / subtitle, thumbnail, floating_action_button.
+  Search: suggestion_list / edit_suggestion / text / search_type_icon, two_row_item (+ title, text1, thumbnail),
+  shelf_divider, query EditText. Explore (Litho, no ids): under section_list_content / browse_content, half-width
+  category cards (2x2 grid), carousel tiles (children of horizontal lists), full-width chart rows (image + text),
+  text-only headers get type; childless Litho hosts are counted as explore.opaque. Shell: mini_player (+ title,
+  subtitle, play_pause_replay coral, previous / next, progress). Excluded: pivot_bar, player_page, module mounts.
+- Walk budget 20,000 nodes (DL37 used 3,000, which likely stopped before reaching rows), debounce 250 ms.
+- Diagnostics: every pass logs page_skin#N:library=..,search=..,explore=..,shell=..,ids=resolved/expected, and the
+  settings Diagnostics view lists per-element counts and unresolved ids. "nothing-matched" no longer exists.
+- Tests: 200 (DL37Test now 8 PageSkin tests on the device id names). Legacy unlisted suites: same 14 failures.
+
+DL49 (device report on DL48)
+- FAIL 1 PageSkin library/search/explore = 0: two module-side causes fixed. (a) the pass walked from the FIRST
+  fragment_container in the window (findViewById); it now walks from the window root (pivot_bar, player_page and
+  module mounts excluded; mini_player styled separately). (b) the whole page walk was skipped whenever the module's
+  Downloads/Home flag was set; that gate is removed (module mounts are excluded by tag instead).
+  New per-pass instrumentation: Diagnostics event page_scan#N:t=<trigger>,cov=<d|h|0>,fc=<shown>/<total containers>,
+  slc=..,bc=..,sl=..,tc=<two_column_item_content_parent>,tr=<two_row_item>,ch=<chips>,rv=<lists>,n=<nodes>[+ if
+  budget hit]; the Diagnostics screen shows the last pass and the last 3 passes that saw page content with the top 5
+  view classes. Explicit passes at 0.3/1.2/3 s after every host tab switch (leave) and visible-page change.
+- FAIL 2 Home tab icon: rendered by the HOST (lac.c -> kzv.accept), not the module. kzv uses fixed state drawables
+  for FEmusic_home (2131233381 = 0x7f080a65), FEmusic_library* (2131233071 = 0x7f08092f) and FEmusic_explore* (2131233110 = 0x7f080956), and
+  bmlj icon maps for every other pivot; bmlj.er (HOME) has no selected variant there. Host fix: in kzv.accept add an
+  FEmusic_ultra_home branch next to FEmusic_home that uses the same state drawable (0x7f080a65), or a state drawable
+  of yt_fill_home_vd_theme_24 / yt_outline_home_vd_theme_24. The module only draws the Home pill in Downloads.
+- FAIL 3 empty Ultra Home: fromTab(FEmusic_ultra_home) is idempotent. An open Home tab is reused (front + reload);
+  opens queued together collapse; Home shows "Loading your music…" until data arrives (page shown after 5 s at the
+  latest); self-checks at 0.8 s and 2.5 s bring Home to the front, reload empty content or rebuild a detached mount.
+  Diagnostics: home reuse-tab, home_heal front/reload/rebuild.
+- FAIL 4 Back from a stock tab root: the module has no Back hook on stock pages. New host entry:
+  NativeIntegration.backAtRoot()Z (or backAtRoot(Ljava/lang/Object;)Z with the lac), called by MusicActivity where
+  Back would finish the activity; true = Home tab selected, do not finish. False right after Back from Home pivoted to
+  Library, so Home -> Library -> exit instead of a Home/Library loop.
+- Tests: 207 (DL49Test 7). Legacy unlisted suites: same 14 pre-existing failures.
+
+DL50 (device report on DL50 host)
+- Empty Ultra Home on every cold launch (regression in DL49), three parts: (1) HomeSource.playlists called
+  LocalPlaylistCopies.entry per playlist (via PlaylistIndex.total and the Liked check), re-parsing and re-serialising
+  the whole copies JSON each time: hundreds of full parses for a ~250-playlist Library, seconds on v7a. (2) DL49's 5 s
+  fallback then rendered the empty-state page while data was still loading. (3) every repeated fromTab / self-check
+  called refresh(), which discarded the load in flight, so the host enforcer's 8 ticks kept restarting it.
+  Fix: one JSON read per load (copies + cached index, no seeding/writes); two-phase load (songs/last played/artists
+  render first, playlists second); refresh() is coalesced (a running load is never discarded; at most one follow-up);
+  the empty-state page only when a finished load has nothing ("Still loading your music…" after 5 s instead).
+- Early Library tap: a Home open queued by an enforcer tick could run after the tap's leave() and reopen Home on top.
+  leave() now cancels queued opens (openEpoch); Diagnostics "home open-cancelled".
+- PageSkin: page totals are attributed to the page on screen (shown ids: suggestion_list / query field / voice search
+  -> search; header_container / two_column_item_content_parent -> library; browse_content / section_list_content ->
+  explore). Explore's carousel tiles are two_row_item views, so DL49 counted them under "search". Summary ends with
+  page=<page>; the Diagnostics screen lists the styled elements per pass.
+- Tests: 212 (DL50Test 5). Legacy unlisted suites: same 14 pre-existing failures.
+
+DL51 (device report on DL51 host)
+- Home sections blank / placeholder covers on some cold launches. Causes in the module: (1) tiles and cards used the
+  fade-in (alpha 0 then animate) and are re-created on every render (two per load); on a busy cold start tiles could be
+  left invisible while the hero card (no fade) showed. (2) covers decoded on the single data thread, queued behind the
+  slow playlist phase, and each re-render discarded covers in flight. Fix: no fade on Home tiles/cards; covers on
+  their own 2 threads with a shared 6 MB cache, applied to whichever ImageView currently shows that tile; settle checks
+  1.5 s and 4 s after every render force full visibility and re-request missing covers.
+- Diagnostics (Download settings > Diagnostics) now start with: "Ultra Home: render #N, X s ago" and per section
+  (hero, recent, quick, playlists, liked, artists) "items N, covers loaded/wanted"; then the Home timeline: the last
+  60 events with ms since module start (fromTab <pivot> from <host caller frames>, leave (host tab switch) from
+  <caller>, openHome queued/cancelled/reused/built, Home closed, self-check actions, render #N <sections>).
+- Early Library tap: no module path re-opens Home after leave() (queued opens cancelled, self-checks stop, loading
+  retries are per instance); covered by DL51Test. If Home reappears on the device, the timeline shows the fromTab and
+  its caller that brought it back.
+- PageSkin: artist rows get round art (and back to rounded square when recycled), contextual_menu_anchor tinted with
+  the theme text colour, edit_suggestion rows as soft cards, toolbar surface + title type and tabbed_view surfaces;
+  switching the style off also unclips thumbnails.
+- Tests: 216 (DL51Test 4). Legacy unlisted suites: same 14 pre-existing failures.
+
+DL52 (device report on DL52 host)
+- Quick picks always showed the note icon (quick covers 0/6): Home read only the saved cover file (Art.file). Recent
+  songs have one (saved at download / by the Downloads list); Quick picks are by design songs NOT in Recent, i.e.
+  older or imported songs, which often have no saved cover file. Song covers now: (1) saved cover file; (2) the cover
+  embedded in the audio file (MediaMetadataRetriever; the module's MP3s carry APIC), saved as the cover file;
+  (3) the same YouTube thumbnail request the Downloads list already makes (Catalog metadata + Art.fetch, i.ytimg.com,
+  only while Art.network is on and its retry backoff allows), saved as the cover file. Diagnostics name the source
+  per section: "quick: items 6, covers 6/6 (embedded=4, fetched=2)"; "none=N" = no cover in any source.
+- Render churn (~12 renders in 10 s): fromTab on an open, built Home is a no-op (front only; reload only when it has
+  no content and is not loading); data arrivals render at most once per 500 ms; a render with unchanged data and chip
+  is skipped; covers are set in place and never trigger a render. Diagnostics: "render #N (K skipped as unchanged)",
+  timeline "openHome on the open Home tab: no-op".
+- SponsorBlock 400: the module never plays or preloads anything on Home (playback only on a tap, NativePlayback).
+  Local-file queue items carry the video id "ultra_<songId>" (NativePlayback.localModel), not a YouTube id; if the
+  host restores such an item at launch, its SponsorBlock lookup (SBRequester.getSegments(videoId), no id check) would
+  get HTTP 400. Host fix: skip SponsorBlock unless the id matches [A-Za-z0-9_-]{11}.
+- Tests: 220 (DL52Test 4). Legacy unlisted suites: same 14 pre-existing failures.
+
+DL53
+- Diagnostics cover counter: counted from the screen (cover views per section that show a bitmap) instead of from
+  cover callbacks, so covers set in place by any path (cache hit, late arrival, settle re-request) are counted. No
+  other behaviour change. Tests: 221 (DL52Test +1).
+- New host query: NativeIntegration.homeShowing()Z (public static, no arguments, no side effects): true when Ultra
+  Home is built and on top (mount attached, shown, topmost child of fragment_container). Tests: 222.

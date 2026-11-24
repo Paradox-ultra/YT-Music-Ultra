@@ -4,7 +4,7 @@
   <img src="assets/icon.png" width="96" alt="YT Music Ultra icon">
 </p>
 
-Customized YouTube Music for Android with a built-in MP3 downloader and a native Downloads experience. Library, Search, Explore and Downloads sit in the bottom bar. Installs separately next to the stock app.
+Customized YouTube Music for Android with a built-in MP3 downloader, a native Downloads experience and a Home page. With the DL34 host change the bottom bar reads Home, Explore, Search, Library, Downloads. Installs separately next to the stock app.
 
 ## Screenshots
 
@@ -16,6 +16,8 @@ Customized YouTube Music for Android with a built-in MP3 downloader and a native
 
 ## Features
 
+- "Quiet Premium" design: muted coral on charcoal, or warm white, following the app theme; rounded cards, coral chips, outlined icons
+- Home: greeting, chips (All, Playlists, Downloads, Artists, Liked), a "Pick up where you left off" card, recent downloads, quick picks, your Library playlists and artists; first tab of the bottom bar with the DL34 host change, otherwise opened from Downloads
 - Download any song from the song menu, or a whole playlist with Download all
 - Highest-quality audio, encoded to MP3
 - Downloads screen in the bottom bar with Playlists, Songs, Artists and Albums
@@ -46,7 +48,7 @@ This repository holds the downloader module source, tests, audit and packaging s
 
 Prerequisites: Java 17, Maven, Android Build Tools 35.0.0, Android API 33 `android.jar`. Extract `classes.jar` from `androidx.test:monitor:1.7.2` and `androidx.tracing:tracing:1.1.0` AARs and install them as local Maven JARs.
 
-1. Run `colab-QA.py` to compile and execute the test suite (169 tests).
+1. Run `colab-QA.py` to compile and execute the test suite (200 tests).
 2. Zip freshly compiled `target/classes` into `module.jar`, then run D8 with min-api 26.
 3. Package with `package32.py`, which expects `MUSIC_BASE_ARM64`, `MUSIC_BASE_V7A`, `MUSIC_ZIPALIGN`, `MUSIC_APKSIGNER_JAR`, `MUSIC_SIGNING_KEY` and `MUSIC_SIGNING_CERT` in the environment.
 

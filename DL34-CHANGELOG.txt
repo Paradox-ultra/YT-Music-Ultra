@@ -1,0 +1,23 @@
+YT MUSIC ULTRA DL34 - "Quiet Premium" redesign (module)
+
+NEW
+- New look across every module screen: muted coral red (#E5484D) on matte charcoal, or warm white in the light
+  theme. Follows the app's own theme. Rounded cards, coral chips, outlined icons, no glow.
+- Downloads: "YouTube Music Ultra" header, big title, coral filter chips, "Recently downloaded" sort row, a
+  gradient summary card with a round Play button, rounded song/playlist cards, "+ New" button for local playlists.
+- Home (new): greeting, chips (All, Playlists, Downloads, Artists, Liked), "Pick up where you left off" card that
+  plays your last song, Recent downloads, Quick picks from your downloads, your Library playlists, your artists.
+- Home is ready to be the first tab of the bottom bar (Home, Explore, Search, Library, Downloads) once the host
+  change in DL34-IMPLEMENTATION.md is applied. Until then, Home opens from the Home button in Downloads.
+- Sheets, dialogs, the Add to playlist picker and the selection bar use the same colours.
+
+REMOVED
+- The DL33 Spotify-style look (pure black, saffron accent) is gone.
+
+UNCHANGED
+- App name, launcher icon, downloader, playback, Radio, pinning, selection, local playlists, Library integrations.
+
+LIMITS
+- The stock mini player, bottom bar shape and the stock Library/Search/Explore pages belong to the app itself and
+  keep their own look. No account avatar in module headers.
+- Checked with 192 automated tests and rendered screenshots, not on a phone.

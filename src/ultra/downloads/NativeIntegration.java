@@ -13,6 +13,7 @@ public final class NativeIntegration {
     static boolean restorePending;
 
     public static void save(Bundle out) {
+        if (home != null && homeTab) out.putBoolean("ultra_home_tab", true);
         if (panel != null) {
             Bundle state = new Bundle();
             panel.onSaveInstanceState(state);
@@ -21,6 +22,7 @@ public final class NativeIntegration {
     }
 
     public static void restore(Bundle state) {
+        if (state != null && state.getBoolean("ultra_home_tab", false)) homeRestorePending = true;
         if (state != null && state.containsKey("ultra_downloads_state")) {
             restored = state.getBundle("ultra_downloads_state");
             restorePending = true;
@@ -58,6 +60,10 @@ public final class NativeIntegration {
         if (restorePending) {
             restorePending = false;
             open();
+        }
+        if (homeRestorePending) {
+            homeRestorePending = false;
+            openHome(true);
         }
         if (a.getIntent().getBooleanExtra("ultra_open_downloads", false)) {
             a.getIntent().removeExtra("ultra_open_downloads");
@@ -111,7 +117,115 @@ public final class NativeIntegration {
         navigation = new WeakReference<>(controller);
     }
 
-    public static boolean downloadsVisible(){return panel!=null;}
+    // ------------------------------------------------------------------ DL51 Home timeline (Diagnostics)
+    static final java.util.ArrayDeque<String> TIMELINE = new java.util.ArrayDeque<>();
+    static final long STARTED = SystemClock.uptimeMillis();
+    /** One timestamped line (ms since this module loaded) in the Home timeline; the last 60 are kept. */
+    public static void timeline(String what) {
+        synchronized (TIMELINE) {
+            TIMELINE.addLast(String.format(java.util.Locale.ROOT, "%6d ms  %s", SystemClock.uptimeMillis() - STARTED, what));
+            while (TIMELINE.size() > 60) TIMELINE.removeFirst();
+        }
+    }
+    /** The two host frames that called into the module (obfuscated names), so a Home re-open can be traced to its caller. */
+    static String caller() {
+        StackTraceElement[] st = new Throwable().getStackTrace();
+        StringBuilder b = new StringBuilder();
+        for (StackTraceElement e : st) {
+            String c = e.getClassName();
+            if (c.startsWith("ultra.") || c.startsWith("java.") || c.startsWith("android.os.Handler") || c.startsWith("dalvik.")) continue;
+            if (b.length() > 0) b.append(" < ");
+            b.append(c).append('.').append(e.getMethodName());
+            if (b.length() > 60 || b.toString().split(" < ").length >= 2) break;
+        }
+        return b.length() == 0 ? "module" : b.toString();
+    }
+    /** Download settings > Diagnostics: Home sections of the last render, then the timeline. */
+    public static String homeReport() {
+        StringBuilder b = new StringBuilder();
+        ultra.home.HomeScreen h = home;
+        b.append(h == null ? "Ultra Home: not open\n" : h.diagnostics());
+        b.append("Home timeline (ms since module start):\n");
+        synchronized (TIMELINE) { for (String line : TIMELINE) b.append("  ").append(line).append('\n'); }
+        return b.toString();
+    }
+
+    // ------------------------------------------------------------------ DL34 host pivot contract
+    /** Browse id of the Home pivot the host inserts FIRST in lac.ultraDownloadPivots (see DL34-IMPLEMENTATION.md). */
+    public static final String HOME_PIVOT = "FEmusic_ultra_home";
+    /** Browse id of the existing Downloads pivot. */
+    public static final String DOWNLOADS_PIVOT = "FEmusic_ultra_downloads";
+    static volatile boolean homePivotSeen;
+
+    /**
+     * Single host entry for module-owned pivots. The host's tab-select method (lac.t) calls this with itself and the
+     * selected pivot's browse id (brso.e) and returns early when it answers true, without touching its content tab:
+     * {@code invoke-static {p0, v0}, Lultra/downloads/NativeIntegration;->fromTab(Ljava/lang/Object;Ljava/lang/String;)Z}.
+     * FEmusic_ultra_home opens Home as a tab, FEmusic_ultra_downloads opens Downloads (same as fromTab(Object) +
+     * Hooks.open()). Returns true when the pivot is module-owned and was handled; false means the host should treat it
+     * as one of its own tabs.
+     */
+    public static boolean fromTab(Object controller, String pivot) {
+        timeline("fromTab " + pivot + " from " + caller());
+        if (HOME_PIVOT.equals(pivot) || DOWNLOADS_PIVOT.equals(pivot)) {barController = new WeakReference<>(controller);landedByHomeBack = false;}
+        if (HOME_PIVOT.equals(pivot)) {
+            navigation = new WeakReference<>(controller);
+            homePivotSeen = true;
+            openHome(true);
+            return true;
+        }
+        if (DOWNLOADS_PIVOT.equals(pivot)) {
+            navigation = new WeakReference<>(controller);
+            open();
+            return true;
+        }
+        return false;
+    }
+
+    // ------------------------------------------------------------------ DL49 back at a stock tab root
+    /** The bar controller from the last fromTab(…, pivot); unlike navigation it survives host tab switches (leave). */
+    static WeakReference<Object> barController = new WeakReference<>(null);
+    /** Set while Back from the Home tab is pivoting to Library; the leave() that pivot causes turns it into landedByHomeBack. */
+    static boolean homeBackPending, landedByHomeBack;
+    /** Tests only: replaces the bar call (UltraNavigationBridge.home). */
+    interface HomeSelector { boolean select(Object controller); }
+    static HomeSelector homeSelector = new HomeSelector() {
+        public boolean select(Object controller) {
+            try { return Boolean.TRUE.equals(Class.forName("UltraNavigationBridge").getMethod("home", Object.class).invoke(null, controller)); }
+            catch (Throwable e) { Diagnostics.error("back_home", e); return false; }
+        }
+    };
+
+    /**
+     * Host hook (MusicActivity), at the point where Back would otherwise finish the activity on a stock top-level tab
+     * (Library, Explore, Search root): returns true when the module selected the Home tab instead, so the host must not
+     * finish. Returns false (host exits as before) when the module screens are open, when there is no Home pivot or
+     * controller, when Home is already selected, and right after Back from Home pivoted to Library, so Back from Home ->
+     * Library -> exits instead of looping Home <-> Library.
+     */
+    public static boolean backAtRoot() { return backAtRoot(null); }
+    public static boolean backAtRoot(Object controller) {
+        if (panel != null || home != null) return false;
+        if (landedByHomeBack) { landedByHomeBack = false; Diagnostics.event("back_home", "exit-after-home-back"); return false; }
+        Object c = controller != null ? controller : barController.get();
+        if (c == null) { Diagnostics.event("back_home", "no-controller"); return false; }
+        boolean done = homeSelector.select(c);
+        Diagnostics.event("back_home", done ? "home" : "not-selected");
+        return done;
+    }
+
+    /** True once the host bottom bar is known to carry the Home pivot; Downloads then hides its own Home entry. */
+    public static boolean hostHasHomePivot() {
+        if (homePivotSeen) return true;
+        Object controller = navigation.get();
+        if (controller == null) return false;
+        try {
+            if (Boolean.TRUE.equals(Class.forName("UltraNavigationBridge").getMethod("hasPivot", Object.class, String.class).invoke(null, controller, HOME_PIVOT))) homePivotSeen = true;
+        } catch (Throwable ignored) {}
+        return homePivotSeen;
+    }
+
+    public static boolean downloadsVisible(){return panel!=null||home!=null;}
 
     static void backBridge(String method,Activity a){
         if(a==null)return;
@@ -162,7 +276,10 @@ public final class NativeIntegration {
         open("");
     }
 
-    public static void open(final String playlist) {
+    public static void open(final String playlist) {open(playlist,null,null);}
+
+    /** Opens Downloads on a tab and optional group (DL33: Home hands local playlists and artists back to Downloads). */
+    static void open(final String playlist,final String tab,final String group) {
         MAIN.post(new Runnable() {
             public void run() {
                 Activity a = activity.get();
@@ -181,6 +298,8 @@ public final class NativeIntegration {
                 ((FrameLayout) target).addView(mount, new FrameLayout.LayoutParams(-1, -1));
                 Intent in = new Intent();
                 if (!playlist.isEmpty()) in.putExtra("playlist", playlist);
+                if (tab != null) in.putExtra("tab", tab);
+                if (group != null) in.putExtra("group", group);
                 Bundle state = restored;
                 restored = null;
                 panel = new DownloadsScreen(a, mount, in, state);
@@ -193,6 +312,9 @@ public final class NativeIntegration {
         if (NativeLibrarySelection.isActive()) {
             NativeLibrarySelection.exit();
             return true;
+        }
+        if (home != null) {
+            home.onBackPressed(); return true;
         }
         if (panel == null) return false;
         panel.onBackPressed(); return true;
@@ -207,11 +329,17 @@ public final class NativeIntegration {
     }
 
     public static void leave() {
+        timeline("leave (host tab switch) from " + caller() + (home != null ? ", closing Home" : ""));
+        openEpoch++;
+        homeOpenPending = false;
+        landedByHomeBack = homeBackPending;
         navigation.clear();
         closePanel();
+        PageSkin.kick("tab");
     }
 
     public static void closePanel() {
+        closeHome(false);
         armSheetGuard();
         backBridge("remove",activity.get());
         if (panel != null) {
@@ -224,6 +352,163 @@ public final class NativeIntegration {
             }
             mount = null;
         }
+    }
+
+    // ------------------------------------------------------------------ DL33 Home
+    /**
+     * Home is a second layer in the same fragment_container, mounted above the Downloads mount exactly the way Downloads is
+     * mounted, so the host bottom navigation and mini-player stay native. A true bottom-bar Home tab needs the host's pivot
+     * list (lac.ultraDownloadPivots / lac.t), which lives in the base APK, so Home is entered from the top of Downloads.
+     * Back closes Home and shows Downloads again; any host tab change closes both (leave / closePanel).
+     */
+    static ultra.home.HomeScreen home;
+    static FrameLayout homeMount;
+    /** True when Home is open as a bottom-bar tab (host pivot), false when it is a layer over Downloads. */
+    static boolean homeTab;
+    static boolean homeRestorePending;
+
+    public static boolean homeVisible(){return home!=null;}
+    /**
+     * DL53 host query: true when the Ultra Home screen is built and currently on top and visible (its mount attached,
+     * shown, and the topmost child of fragment_container); false otherwise. No arguments, no side effects.
+     */
+    public static boolean homeShowing() {
+        ultra.home.HomeScreen h = home;
+        FrameLayout m = homeMount;
+        if (h == null || m == null || !m.isAttachedToWindow() || !m.isShown()) return false;
+        if (!(m.getParent() instanceof ViewGroup)) return false;
+        ViewGroup parent = (ViewGroup) m.getParent();
+        return parent.indexOfChild(m) == parent.getChildCount() - 1;
+    }
+    /** Home opened as its own bottom-bar tab: Back leaves it like Back from Downloads (to Library). */
+    public static boolean homeIsTab(){return home!=null&&homeTab;}
+
+    /** Home as a layer above Downloads (the Home entry in the Downloads header). */
+    public static void openHome() {openHome(false);}
+
+    /** Home; asTab=true for the host Home pivot: Downloads is closed first and Home is the only module screen. */
+    /**
+     * DL49: idempotent. A host Home pivot select (fromTab FEmusic_ultra_home) may arrive early, late or repeatedly (the
+     * host start-tab enforcer). An open Home tab is reused (brought to the front, data reloaded) instead of being torn
+     * down; opens queued at the same moment collapse into one; and two self-checks after every open repair a Home that
+     * lost its place: detached mount -> rebuilt, covered by another view -> brought to front, no content -> reloaded.
+     * Home never stays a blank shell: it shows a loading state until its data arrives (HomeScreen).
+     */
+    static volatile boolean homeOpenPending;
+    /** Bumped by leave(): a Home open queued before the user switched tabs must not reappear afterwards (DL50). */
+    static volatile int openEpoch;
+    public static void openHome(final boolean asTab) {
+        if (asTab && homeOpenPending) return;
+        homeOpenPending = asTab;
+        final int epoch = openEpoch;
+        timeline("openHome queued (" + (asTab ? "tab" : "layer") + ")");
+        MAIN.post(new Runnable() {
+            public void run() {
+                homeOpenPending = false;
+                if (epoch != openEpoch) { Diagnostics.event("home", "open-cancelled"); timeline("openHome cancelled: a host tab switch came first"); return; }
+                Activity a = activity.get();
+                if (a == null || a.isFinishing()) return;
+                View target = a.findViewById(id(a, "fragment_container"));
+                if (asTab && home != null && homeTab && homeMount != null && homeMount.getParent() == target && homeMount.isAttachedToWindow()) {
+                    // DL52: Home is built and showing (or loading): no reload, no render, at most brought to the front.
+                    homeOnTop();
+                    if (!home.hasContent() && !home.isLoading()) { home.refresh(); timeline("openHome on the open Home tab: no content, reloading"); }
+                    else timeline("openHome on the open Home tab: no-op");
+                    Diagnostics.event("home", "reuse-tab");
+                    return;
+                }
+                if (asTab) closePanel(); else closeHome(false);
+                if (!(target instanceof FrameLayout)) {
+                    Hooks.message("The Music content view is not ready");
+                    return;
+                }
+                homeMount = new FrameLayout(a);
+                homeMount.setTag("ultra_home_panel");
+                ((FrameLayout) target).addView(homeMount, new FrameLayout.LayoutParams(-1, -1));
+                if (panel != null) panel.onPause();
+                homeTab = asTab || panel == null;
+                home = new ultra.home.HomeScreen(a, homeMount);
+                if (panel == null) backBridge("install", a);
+                Diagnostics.event("home", homeTab ? "open-tab" : "open-layer");
+                timeline("openHome built a new Home (" + (homeTab ? "tab" : "layer") + ")");
+                healHome(home, 0);
+            }
+        });
+    }
+
+    /** Home mount visible and last in fragment_container, so no host page view added later can cover it. */
+    static void homeOnTop() {
+        FrameLayout m = homeMount;
+        if (m == null) return;
+        m.setVisibility(View.VISIBLE);
+        if (m.getParent() instanceof ViewGroup) {
+            ViewGroup parent = (ViewGroup) m.getParent();
+            if (parent.indexOfChild(m) != parent.getChildCount() - 1) m.bringToFront();
+        }
+    }
+
+    static final long[] HEAL_MS = {800, 2500};
+    /** Self-checks after an open, for the same Home instance only; a rebuild happens at most once per open. */
+    static void healHome(final ultra.home.HomeScreen screen, final int step) {
+        if (step >= HEAL_MS.length) return;
+        MAIN.postDelayed(new Runnable() {
+            public void run() {
+                if (home != screen || screen == null) return;
+                FrameLayout m = homeMount;
+                if (m == null || !m.isAttachedToWindow() || m.getParent() == null) {
+                    Diagnostics.event("home_heal", "rebuild");
+                    timeline("self-check: Home mount detached, rebuilding");
+                    boolean tab = homeTab;
+                    closeHome(false);
+                    openHome(tab);
+                    return;
+                }
+                ViewGroup parent = (ViewGroup) m.getParent();
+                if (m.getVisibility() != View.VISIBLE || parent.indexOfChild(m) != parent.getChildCount() - 1) {
+                    homeOnTop();
+                    Diagnostics.event("home_heal", "front");
+                    timeline("self-check: Home was covered, brought to front");
+                }
+                if (!screen.hasContent() && !screen.isLoading()) {
+                    screen.refresh();
+                    Diagnostics.event("home_heal", "reload");
+                    timeline("self-check: Home had no content, reloading");
+                }
+                healHome(screen, step + 1);
+            }
+        }, HEAL_MS[step]);
+    }
+
+    /** Back from Home: a layer closes and Downloads resumes; the Home tab returns to Library like Downloads does. */
+    public static void closeHome() {
+        if (home != null && homeTab) {homeBackPending = true; returnToContent(); homeBackPending = false; return;}
+        closeHome(true);
+    }
+
+    static void closeHome(boolean resumeDownloads) {
+        if (home != null) timeline("Home closed" + (resumeDownloads ? " (back to Downloads)" : ""));
+        if (home != null) {
+            home.destroy();
+            home = null;
+        }
+        homeTab = false;
+        if (homeMount != null) {
+            if (homeMount.getParent() instanceof ViewGroup) ((ViewGroup) homeMount.getParent()).removeView(homeMount);
+            homeMount = null;
+            if (resumeDownloads && panel != null) panel.onResume();
+            else if (resumeDownloads && panel == null) backBridge("remove", activity.get());
+        }
+    }
+
+    /** Leaves Home for the Downloads screen on a tab and group, reusing the open Downloads screen when there is one. */
+    public static void showDownloads(final String tab, final String group) {
+        MAIN.post(new Runnable() {
+            public void run() {
+                closeHome(false);
+                if (panel != null) {panel.show(tab, group); panel.onResume();}
+                else open("", tab, group);
+            }
+        });
     }
 
     static int id(Activity a, String name) {
