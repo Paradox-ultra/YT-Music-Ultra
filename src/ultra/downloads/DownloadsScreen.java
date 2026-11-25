@@ -453,7 +453,23 @@ public final class DownloadsScreen extends android.view.ContextThemeWrapper {
 
     // ------------------------------------------------------------------ playback
     private ArrayList<String> playable()throws Exception{ArrayList<String> ids=new ArrayList<>();for(Library.Item i:visible())if(i.state.equals("done"))ids.add(i.id);return ids;}
-    private void nativePlay(ArrayList<String> ids,int index)throws Exception{NativePlayback.start(this,ids,index);}
+    /**
+     * DL58: Play / Shuffle never check files on the main thread. The checks and the queue build run in
+     * NativePlayback.startAsync (20 s limit); "Preparing playback" appears after 400 ms and Back cancels the start.
+     */
+    private NativePlayback.Handle playing;private ProgressDialog preparing;
+    private void nativePlay(ArrayList<String> ids,int index){
+        if(playing!=null)playing.cancel();if(preparing!=null&&preparing.isShowing())preparing.dismiss();
+        final ProgressDialog d=new ProgressDialog(this);d.setTitle("Preparing playback");d.setMessage("Checking "+ids.size()+" saved files…");d.setIndeterminate(true);d.setCancelable(true);d.setCanceledOnTouchOutside(false);preparing=d;
+        final NativePlayback.Handle[] h=new NativePlayback.Handle[1];
+        d.setOnCancelListener(new DialogInterface.OnCancelListener(){public void onCancel(DialogInterface x){if(h[0]!=null)h[0].cancel();Hooks.message("Playback cancelled");}});
+        final Runnable show=new Runnable(){public void run(){if(h[0]!=null&&!h[0].cancelled()&&!isFinishing()&&!isDestroyed())try{d.show();}catch(Throwable ignored){}}};
+        h[0]=NativePlayback.startAsync(this,ids,index,new NativePlayback.Done(){public void done(int queued,Exception err,boolean limited){
+            main.removeCallbacks(show);if(d.isShowing())try{d.dismiss();}catch(Throwable ignored){}
+            if(isFinishing()||isDestroyed())return;
+            if(err!=null)error(err);else if(limited)Hooks.message("Playing "+queued+" songs (file check stopped after 20 s)");}});
+        playing=h[0];main.postDelayed(show,400);
+    }
     private void playOne(Library.Item i){try{ArrayList<String> ids=playable();nativePlay(ids,Math.max(0,ids.indexOf(i.id)));}catch(Exception e){error(e);}}
     private void playAll(boolean shuffle){try{ArrayList<String> ids=playable();if(ids.isEmpty()){Hooks.message("No saved audio in this view");return;}if(shuffle)Collections.shuffle(ids);nativePlay(ids,0);}catch(Exception e){error(e);}}
     static final String[] SORTS={"Recently downloaded","Title A to Z","Artist A to Z","Largest first"};
@@ -523,7 +539,43 @@ public final class DownloadsScreen extends android.view.ContextThemeWrapper {
         if(which==9){DownloadTabs.restore(DownloadsScreen.this);render(true);Hooks.message("Download tabs restored");}if(which==8)Diagnostics.show(DownloadsScreen.this);if(which==4){scannedAt=0;mediaAccess(true);PlaylistIndex.sync();}if(which==5)hideHistory();if(which==6)deleteAll();if(which==7)NativeUi.dialog(DownloadsScreen.this).setTitle("Native audio downloads").setMessage("Best available unprotected source audio is encoded to MP3 at 320 kbps with title, artist, album and available cover art. MP3 is lossy, not hi-res or lossless. A 320 kbps output does not improve the source quality.\n\nUses YouTube Ultra's resumable range transfer and MP3 pipeline. LAME 3.100 is LGPL-2.0-or-later. Encoder source, build instructions and license are provided in the accompanying source archive. No LastWave source, paid catalog or DRM extraction is included.\n\nStreams come from this app's current player response or its authenticated stream request. Playback and conversion still depend on the phone's codecs and the source response.").setPositiveButton("Close",null).show();
     }}).show();}
     protected void onActivityResult(int request,int result,Intent data){if(request==PermanentDelete.REQUEST){if(pendingDelete!=null)pendingDelete.result(result);return;}if(request==91&&result==Activity.RESULT_OK&&data!=null&&data.getData()!=null){try{Uri uri=data.getData();getContentResolver().takePersistableUriPermission(uri,data.getFlags()&(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION));Library.prefs(this).edit().putString("tree",uri.toString()).apply();Hooks.message("New downloads will use the selected folder");}catch(Exception e){error(e);}}}
-    private void loadPlaylist(final String id){final ProgressDialog busy=ProgressDialog.show(this,"Reading playlist","No songs are queued until you confirm the list size.",true,false);io.execute(new Runnable(){public void run(){try{final NativeSnapshot.Snapshot snapshot=NativeSnapshot.get(id);final boolean partial=snapshot!=null&&!snapshot.complete;final ArrayList<Catalog.Track> tracks=snapshot!=null?NativeSnapshot.loaded(id):Catalog.playlist(id);if(tracks==null||tracks.isEmpty())throw new IOException("No loaded songs are available yet");main.post(new Runnable(){public void run(){if(isFinishing()||isDestroyed())return;busy.dismiss();NativeUi.dialog(DownloadsScreen.this).setTitle(partial?"Download loaded songs?":"Download playlist?").setMessage((partial?"Only the "+tracks.size()+" songs already loaded on this playlist page are available. This is NOT the whole playlist. More songs remain on later pages.\n\n":"All "+tracks.size()+" songs in this playlist are available.\n\n")+"Songs will be added using the selected quality and folder.").setPositiveButton("Download",new DialogInterface.OnClickListener(){public void onClick(DialogInterface d,int w){io.execute(new Runnable(){public void run(){int added=0;try{added=Library.addBatch(DownloadsScreen.this,tracks);Intent start=new Intent(DownloadsScreen.this,DownloadsService.class);if(Build.VERSION.SDK_INT>=26)startForegroundService(start);else startService(start);Hooks.message(added+" songs added to Downloads");}catch(Exception e){Hooks.message(added+" songs added; remaining songs were not queued. "+e.getMessage());}refresh();}});}}).setNegativeButton("Cancel",null).show();}});}catch(final Exception e){main.post(new Runnable(){public void run(){if(!isFinishing()&&!isDestroyed()){busy.dismiss();error(e);}}});}}});}
+    /** DL58: the playlist read may take at most this long; then the songs already loaded are offered, or an error. */
+    static volatile long READ_LIMIT_MS=20000;
+    /** The playlist read (tests replace it): the songs loaded on the playlist page, else the Catalog read. */
+    interface PlaylistReader{ArrayList<Catalog.Track> read(String id)throws Exception;}
+    static PlaylistReader reader=new PlaylistReader(){public ArrayList<Catalog.Track> read(String id)throws Exception{NativeSnapshot.Snapshot snapshot=NativeSnapshot.get(id);return snapshot!=null?NativeSnapshot.loaded(id):Catalog.playlist(id);}};
+    /**
+     * DL58: "Reading playlist" is dismissible with Back (the read is cancelled and nothing is shown or queued), runs on
+     * its own thread (not behind the screen's io queue) and gives up after READ_LIMIT_MS, offering the songs already
+     * loaded on the playlist page when there are any.
+     */
+    private void loadPlaylist(final String id){
+        final java.util.concurrent.atomic.AtomicBoolean cancelled=new java.util.concurrent.atomic.AtomicBoolean();
+        final java.util.concurrent.FutureTask<ArrayList<Catalog.Track>> read=new java.util.concurrent.FutureTask<>(new java.util.concurrent.Callable<ArrayList<Catalog.Track>>(){public ArrayList<Catalog.Track> call()throws Exception{
+            return reader.read(id);}});
+        final ProgressDialog busy=new ProgressDialog(this);busy.setTitle("Reading playlist");busy.setMessage("No songs are queued until you confirm the list size.");busy.setIndeterminate(true);busy.setCancelable(true);busy.setCanceledOnTouchOutside(false);
+        busy.setOnCancelListener(new DialogInterface.OnCancelListener(){public void onCancel(DialogInterface d){cancelled.set(true);read.cancel(true);}});
+        busy.show();
+        NativePlayback.WORK.execute(read);
+        NativePlayback.WORK.execute(new Runnable(){public void run(){
+            ArrayList<Catalog.Track> tracks=null;Exception failure=null;boolean timedOut=false;
+            try{tracks=read.get(READ_LIMIT_MS,java.util.concurrent.TimeUnit.MILLISECONDS);}
+            catch(java.util.concurrent.TimeoutException e){read.cancel(true);timedOut=true;tracks=NativeSnapshot.loaded(id);}
+            catch(java.util.concurrent.CancellationException e){return;}
+            catch(java.util.concurrent.ExecutionException e){failure=e.getCause() instanceof Exception?(Exception)e.getCause():e;}
+            catch(InterruptedException e){return;}
+            if(cancelled.get())return;
+            final NativeSnapshot.Snapshot snapshot=NativeSnapshot.get(id);final boolean partial=timedOut||snapshot!=null&&!snapshot.complete;
+            final ArrayList<Catalog.Track> found=tracks;
+            final Exception error=failure!=null?failure:found==null||found.isEmpty()?new IOException(timedOut?"The playlist could not be read in "+READ_LIMIT_MS/1000+" s. Try again.":"No loaded songs are available yet"):null;
+            main.post(new Runnable(){public void run(){
+                if(cancelled.get()||isFinishing()||isDestroyed())return;try{busy.dismiss();}catch(Throwable ignored){}
+                if(error!=null){error(error);return;}
+                final ArrayList<Catalog.Track> tracks=found;
+                NativeUi.dialog(DownloadsScreen.this).setTitle(partial?"Download loaded songs?":"Download playlist?").setMessage((partial?"Only the "+tracks.size()+" songs already loaded on this playlist page are available. This is NOT the whole playlist. More songs remain on later pages.\n\n":"All "+tracks.size()+" songs in this playlist are available.\n\n")+"Songs will be added using the selected quality and folder.").setPositiveButton("Download",new DialogInterface.OnClickListener(){public void onClick(DialogInterface d,int w){io.execute(new Runnable(){public void run(){int added=0;try{added=Library.addBatch(DownloadsScreen.this,tracks);Intent start=new Intent(DownloadsScreen.this,DownloadsService.class);if(Build.VERSION.SDK_INT>=26)startForegroundService(start);else startService(start);Hooks.message(added+" songs added to Downloads");}catch(Exception e){Hooks.message(added+" songs added; remaining songs were not queued. "+e.getMessage());}refresh();}});}}).setNegativeButton("Cancel",null).show();
+            }});
+        }});
+    }
     private void hideHistory(){NativeUi.dialog(this).setTitle("Hide completed history?").setMessage("Saved audio stays on storage. Active downloads stay visible.").setPositiveButton("Hide history",new DialogInterface.OnClickListener(){public void onClick(DialogInterface d,int w){try{for(Library.Item i:Library.all(DownloadsScreen.this))if(i.state.equals("done"))Library.forget(DownloadsScreen.this,i);render(true);}catch(Exception e){error(e);}}}).setNegativeButton("Cancel",null).show();}
     private void deleteAll(){NativeUi.dialog(this).setTitle("Delete all downloads?").setMessage("Active downloads will be paused, then only tracked download files and partials will be deleted. This cannot be undone. Unrelated files are not touched.").setPositiveButton("Delete all",new DialogInterface.OnClickListener(){public void onClick(DialogInterface d,int w){io.execute(new Runnable(){public void run(){int failed=0;try{synchronized(Library.LOCK){Library.wiping=true;for(Library.Item i:Library.all(DownloadsScreen.this))i.paused=true;}long until=SystemClock.elapsedRealtime()+60000;while(DownloadsService.runningAny()&&SystemClock.elapsedRealtime()<until)Thread.sleep(200);if(DownloadsService.runningAny())throw new IOException("Download connections have not stopped. Nothing was deleted. Try again.");for(Library.Item i:Library.all(DownloadsScreen.this)){try{if(!i.imported)Storage.delete(DownloadsScreen.this,i);Library.clearPartial(DownloadsScreen.this,i);Library.remove(DownloadsScreen.this,i);}catch(Exception e){failed++;i.state="failed";i.error="Could not delete: "+e.getMessage();Library.save(DownloadsScreen.this);}}Hooks.message(failed==0?"Tracked downloads deleted":failed+" downloads could not be deleted and remain listed");}catch(Exception e){error(e);}finally{synchronized(Library.LOCK){Library.wiping=false;}refresh();}}});}}).setNegativeButton("Cancel",null).show();}
     private void mediaAccess(boolean ask){if(!LocalAudio.allowed(this)){if(ask&&!mediaRequested){mediaRequested=true;requestPermissions(new String[]{LocalAudio.permission()},92);}return;}if(mediaScanning||scannedAt!=0)return;mediaScanning=true;io.execute(new Runnable(){public void run(){try{int n=LocalAudio.scan(DownloadsScreen.this);scannedAt=SystemClock.elapsedRealtime();if(n>0)Hooks.message(n+" existing audio files found");}catch(Exception e){Diagnostics.error("local_scan",e);}finally{mediaScanning=false;refresh();}}});}
@@ -714,10 +766,8 @@ public final class DownloadsScreen extends android.view.ContextThemeWrapper {
             Hooks.message("No downloaded songs in selection to play");
             return;
         }
-        try{
-            NativePlayback.start(this, playable, 0);
-            exitSelection();
-        }catch(Exception e){error(e);}
+        nativePlay(playable, 0);
+        exitSelection();
     }
 
     private void handleDownloadSelection(){

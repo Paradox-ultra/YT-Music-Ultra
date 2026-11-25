@@ -23,7 +23,21 @@ public final class Diagnostics {
  public static void event(String kind,String result){if(kind==null||result==null||!kind.matches("[a-z0-9_.-]{1,40}")||!result.matches("[a-z0-9_.:=,/-]{1,80}"))return;synchronized(counts){Integer n=counts.get(kind);counts.put(kind,n==null?1:n+1);latest=kind+"#"+counts.get(kind)+":"+result;append(kind+" "+result);}}
  /** Logs sanitized class names only. Never text, IDs or account data. */
  static void classes(String scope,Collection<String> names){if(scope==null||!scope.matches("[a-z0-9_.-]{1,40}"))return;StringBuilder b=new StringBuilder();int n=0;for(String s:names){String safe=OfferEvidence.safeClassName(s);if(n++>=40){b.append(",...");break;}if(b.length()>0)b.append(',');b.append(safe);}synchronized(counts){append("classes "+scope+" "+(b.length()==0?"-":b));}}
- static void append(String body){try{Context c=Hooks.context();if(c==null)return;File f=new File(c.getFilesDir(),LOG);if(f.length()>16384)new FileOutputStream(f).close();try(FileOutputStream out=new FileOutputStream(f,true)){out.write((System.currentTimeMillis()/1000+" "+body+"\n").getBytes("UTF-8"));}}catch(Throwable ignored){}}
+ /**
+  * DL58: the log file is written on a background writer, never on the caller's thread (Home taps call event() on main).
+  * Lines not yet written are kept in PENDING and shown by text(), so nothing is missing from the Diagnostics page.
+  */
+ static final java.util.concurrent.ConcurrentLinkedQueue<String> PENDING=new java.util.concurrent.ConcurrentLinkedQueue<>();
+ static final java.util.concurrent.ExecutorService WRITER=java.util.concurrent.Executors.newSingleThreadExecutor(new java.util.concurrent.ThreadFactory(){public Thread newThread(Runnable r){Thread t=new Thread(r,"ultra-diagnostics");t.setDaemon(true);return t;}});
+ static void append(String body){
+  if(PENDING.size()>200)return;PENDING.add(System.currentTimeMillis()/1000+" "+body+"\n");
+  try{WRITER.execute(new Runnable(){public void run(){flushPending();}});}catch(Throwable ignored){}
+ }
+ static void flushPending(){
+  try{Context c=Hooks.context();if(c==null){PENDING.clear();return;}File f=new File(c.getFilesDir(),LOG);if(f.length()>16384)new FileOutputStream(f).close();
+   try(FileOutputStream out=new FileOutputStream(f,true)){String line;while((line=PENDING.peek())!=null){out.write(line.getBytes("UTF-8"));PENDING.poll();}}
+  }catch(Throwable ignored){}
+ }
  public static void error(String scope,Throwable e){event(scope,"error-"+e.getClass().getSimpleName().toLowerCase(Locale.US));}
  /** Plain-text diagnostics: latest event, latest class line, rendering sources and the local log. */
  static String text(Context c){StringBuilder text=new StringBuilder("Local hook log. No account data, song IDs, titles or on-screen text are recorded; dialog entries list class names only.\n\n");text.append(NativeIntegration.homeReport()).append(PageSkin.report());
@@ -32,7 +46,8 @@ public final class Diagnostics {
   try{text.append("Native Library order rows: ").append(new org.json.JSONArray(Library.prefs(c).getString("native_playlist_order","[]")).length()).append(".\n\n");}catch(Exception ignored){}
   text.append("Downloads screen rendering (native resource or fallback):\n").append(NativeUi.report()).append('\n');
   text.append("Playlist shuffle button: ").append(NativeShuffle.status()).append("\n\n");
-  try{File f=new File(c.getFilesDir(),LOG);try(BufferedReader in=new BufferedReader(new InputStreamReader(new FileInputStream(f),"UTF-8"))){String line;while((line=in.readLine())!=null)text.append(line).append('\n');}}catch(Exception e){text.append("No hook events recorded yet.");}
+  try{File f=new File(c.getFilesDir(),LOG);try(BufferedReader in=new BufferedReader(new InputStreamReader(new FileInputStream(f),"UTF-8"))){String line;while((line=in.readLine())!=null)text.append(line).append('\n');}}catch(Exception e){if(PENDING.isEmpty())text.append("No hook events recorded yet.");}
+  for(String pending:PENDING.toArray(new String[0]))text.append(pending);
   text.append("\nLibrary renderer schema (field names/types only):\n").append(LibraryEvidence.read(c));
   return text.toString();}
  public static void show(Context c){TextView view=new TextView(c);view.setText(text(c));view.setTextIsSelectable(true);int pad=(int)(16*c.getResources().getDisplayMetrics().density);view.setPadding(pad,pad,pad,pad);ScrollView scroll=new ScrollView(c);scroll.addView(view);NativeUi.dialog(c).setTitle("Diagnostics").setView(scroll).setPositiveButton("Close",null).show();}

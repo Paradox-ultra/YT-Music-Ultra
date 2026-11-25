@@ -539,13 +539,14 @@ public final class NativeLibrarySelection {
             Hooks.message("Select songs to play");
             return;
         }
-        try {
-            NativePlayback.start(c, playable, 0);
-            Hooks.message("Playing " + playable.size() + " songs");
-            exit();
-        } catch (Exception e) {
-            Hooks.message("Play failed: " + e.getMessage());
-        }
+        // DL58: file checks and queue build off the main thread (NativePlayback.startAsync, 20 s limit).
+        NativePlayback.startAsync(c, playable, 0, new NativePlayback.Done() {
+            public void done(int queued, Exception error, boolean limited) {
+                if (error != null) Hooks.message("Play failed: " + error.getMessage());
+                else Hooks.message("Playing " + queued + " songs" + (limited ? " (file check stopped after 20 s)" : ""));
+            }
+        });
+        exit();
     }
 
     private static void handleDownload(final Context c) {

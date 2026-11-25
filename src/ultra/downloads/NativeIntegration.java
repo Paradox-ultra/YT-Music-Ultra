@@ -121,11 +121,16 @@ public final class NativeIntegration {
     static final java.util.ArrayDeque<String> TIMELINE = new java.util.ArrayDeque<>();
     static final long STARTED = SystemClock.uptimeMillis();
     /** One timestamped line (ms since this module loaded) in the Home timeline; the last 60 are kept. */
+    /** timeline() from any thread: posted to the main thread. */
+    static void timelineAsync(final String what){MAIN.post(new Runnable(){public void run(){timeline(what);}});}
+
     public static void timeline(String what) {
         synchronized (TIMELINE) {
             TIMELINE.addLast(String.format(java.util.Locale.ROOT, "%6d ms  %s", SystemClock.uptimeMillis() - STARTED, what));
             while (TIMELINE.size() > 60) TIMELINE.removeFirst();
         }
+        // DL61: the same line in logcat (tag ULTRAHOME), outside the lock.
+        try { android.util.Log.d("ULTRAHOME", String.valueOf(what)); } catch (Throwable ignored) {}
     }
     /** The two host frames that called into the module (obfuscated names), so a Home re-open can be traced to its caller. */
     static String caller() {

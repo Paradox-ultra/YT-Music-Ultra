@@ -52,8 +52,12 @@ public final class HomeScreen extends ContextThemeWrapper {
     static final Map<String,String> COVER_SOURCE=Collections.synchronizedMap(new HashMap<String,String>());
     void source(String section,String what){LinkedHashMap<String,Integer> m=sources.get(section);if(m==null){m=new LinkedHashMap<>();sources.put(section,m);}Integer n=m.get(what);m.put(what,n==null?1:n+1);}
     private LinearLayout root,content,chipRow;private ScrollView scroll;private TextView greeting;
-    private String chip=HomeLogic.ALL;private boolean destroyed,loaded,loading,reloadAfter,songsReady;private int generation;private TextView loadingLabel;
-    private List<HomeTile> songs=new ArrayList<>(),playlists=new ArrayList<>(),pinned=new ArrayList<>(),artists=new ArrayList<>();private HomeTile last;
+    private String chip=HomeLogic.ALL;private volatile boolean destroyed;private boolean loaded,loading,reloadAfter,songsReady;private int generation;private TextView loadingLabel;
+    private List<HomeTile> songs=new ArrayList<>(),playlists=new ArrayList<>(),pinned=new ArrayList<>(),artists=new ArrayList<>(),trending=new ArrayList<>();private HomeTile last;
+    /** Where the Trending row came from: "online", "cache", or "" (none: Recent downloads shown). */
+    private String trendingFrom="";private long trendingAt;
+    /** Trending (cache file, request, covers) runs on its own thread: never on the main, data or cover threads. */
+    private final ExecutorService net=Executors.newSingleThreadExecutor();
     private final ViewTreeObserver.OnGlobalLayoutListener insets=new ViewTreeObserver.OnGlobalLayoutListener(){public void onGlobalLayout(){applyInsets();}};
     /** Recent row length and quick-pick count. */
     static final int RECENT=8,PICKS=6;
@@ -70,7 +74,7 @@ public final class HomeScreen extends ContextThemeWrapper {
         // Header: brand line, then the big "Home" title and the time-of-day greeting.
         LinearLayout brandRow=new LinearLayout(this);brandRow.setGravity(Gravity.CENTER_VERTICAL);brandRow.setPadding(dp(16),dp(4),dp(4),0);brandRow.setMinimumHeight(dp(52));
         brandRow.addView(NativeUi.brand(this),new LinearLayout.LayoutParams(0,-2,1));
-        if(!NativeIntegration.homeIsTab())brandRow.addView(NativeUi.iconButton(this,"yt_outline_download_vd_theme_24","download","Back to Downloads",new View.OnClickListener(){public void onClick(View v){NativeIntegration.closeHome();}}),new LinearLayout.LayoutParams(dp(48),dp(48)));
+        // DL56: no icon at the top right of Home (the brand line fills the row; the row keeps its 52dp height).
         root.addView(brandRow,new LinearLayout.LayoutParams(-1,-2));
         TextView title=NativeUi.header(this,"Home");title.setTextSize(TypedValue.COMPLEX_UNIT_SP,34);title.setTag("home_title");title.setPadding(dp(16),0,dp(16),0);root.addView(title,new LinearLayout.LayoutParams(-1,-2));
         greeting=NativeUi.text(this,"TextAppearance.YouTubeMusic.Body1",15,p.muted,false);greeting.setText(HomeLogic.greeting(Calendar.getInstance().get(Calendar.HOUR_OF_DAY)));greeting.setTag("home_greeting");greeting.setPadding(dp(16),dp(2),dp(16),0);
@@ -108,7 +112,42 @@ public final class HomeScreen extends ContextThemeWrapper {
     }
 
     public void onBackPressed(){NativeIntegration.closeHome();}
-    public void destroy(){destroyed=true;generation++;io.shutdownNow();artIo.shutdownNow();try{ViewTreeObserver o=mount.getViewTreeObserver();if(o.isAlive())o.removeOnGlobalLayoutListener(insets);}catch(Throwable ignored){}}
+    /**
+     * DL57: all Trending work (cache file read, request, covers) runs on the Trending thread and only starts after Home
+     * has rendered once with its normal content (sections or the empty state), never during the first load. Results
+     * come back to the main thread as one render (list) or in-place covers; the main thread never waits for it.
+     */
+    private boolean trendingStarted;
+    void startTrending(){
+        if(trendingStarted||destroyed)return;trendingStarted=true;final Context app=getApplicationContext();
+        ultra.downloads.NativeIntegration.timeline("trending: started after first render");
+        try{net.execute(new Runnable(){public void run(){
+            final ultra.downloads.TrendingFeed.Feed cache=HomeSource.trendingCache(app);
+            if(cache!=null)main.post(new Runnable(){public void run(){if(destroyed||!trending.isEmpty())return;showTrending(cache,"cache");}});
+            ultra.downloads.TrendingFeed.Feed fresh=null;
+            if(cache==null||!cache.fresh(System.currentTimeMillis())){
+                fresh=HomeSource.trendingRefresh(app);final ultra.downloads.TrendingFeed.Feed f=fresh;
+                main.post(new Runnable(){public void run(){if(destroyed)return;
+                    ultra.downloads.NativeIntegration.timeline("trending refresh: "+HomeSource.trendingOutcome()+(f==null?"":" ("+f.songs.size()+" songs, gl "+f.gl+")"));
+                    if(f!=null)showTrending(f,"online");}});
+            }
+            ultra.downloads.TrendingFeed.Feed shown=fresh!=null?fresh:cache;if(shown==null)return;
+            for(final ultra.downloads.TrendingFeed.Song song:shown.songs){
+                if(destroyed||Thread.currentThread().isInterrupted())return;
+                if(ultra.downloads.TrendingFeed.hasCover(app,song.videoId))continue;
+                if(ultra.downloads.TrendingFeed.cover(app,song))main.post(new Runnable(){public void run(){coverArrived(song.videoId);}});
+            }
+        }});}catch(RejectedExecutionException ignored){}
+    }
+    private void showTrending(ultra.downloads.TrendingFeed.Feed f,String from){trending=HomeSource.trendingTiles(f);trendingFrom=from;trendingAt=f.fetchedAt;loaded=true;requestRender();}
+    /** A Trending cover was saved: set it in place on the tiles that show that song (no render). */
+    void coverArrived(String videoId){
+        if(destroyed||content==null)return;ArrayDeque<View> q=new ArrayDeque<>();q.add(content);
+        while(!q.isEmpty()){View v=q.poll();
+            if(v instanceof ImageView&&v.getTag() instanceof Object[]){Object[] want=(Object[])v.getTag();HomeTile t=(HomeTile)want[0];if(t.online()&&t.id.equals(videoId)&&((ImageView)v).getDrawable()==null)fetch(t,(ImageView)v,(Integer)want[1],(String)want[2],false);}
+            if(v instanceof ViewGroup)for(int k=0;k<((ViewGroup)v).getChildCount();k++)q.add(((ViewGroup)v).getChildAt(k));}
+    }
+    public void destroy(){destroyed=true;generation++;io.shutdownNow();artIo.shutdownNow();net.shutdownNow();try{ViewTreeObserver o=mount.getViewTreeObserver();if(o.isAlive())o.removeOnGlobalLayoutListener(insets);}catch(Throwable ignored){}}
 
     private void applyInsets(){if(root==null||scroll==null)return;try{int[] in=DownloadsScreen.contentInsets(host,mount);if(root.getPaddingTop()!=in[0])root.setPadding(0,in[0],0,0);if(scroll.getPaddingBottom()!=in[1])scroll.setPadding(0,0,0,in[1]);}catch(Throwable ignored){}}
 
@@ -122,7 +161,8 @@ public final class HomeScreen extends ContextThemeWrapper {
         if(destroyed)return;loading=true;reloadAfter=false;final Context app=getApplicationContext();
         try{io.execute(new Runnable(){public void run(){
             final List<HomeTile> s=HomeSource.recentSongs(app),a=HomeSource.artists(s);final HomeTile l=HomeSource.lastPlayed(app);
-            main.post(new Runnable(){public void run(){if(destroyed)return;songs=s;artists=a;last=l;songsReady=true;if(!s.isEmpty()){loaded=true;requestRender();}}});
+            main.post(new Runnable(){public void run(){if(destroyed)return;songs=s;artists=a;last=l;
+                songsReady=true;if(!s.isEmpty()){loaded=true;requestRender();}}});
             final List<HomeTile> pl=HomeSource.playlists(app);final List<HomeTile> pin=HomeSource.pinned(app,pl);
             main.post(new Runnable(){public void run(){
                 if(destroyed)return;playlists=pl;pinned=pin;loaded=true;loading=false;requestRender();
@@ -150,7 +190,7 @@ public final class HomeScreen extends ContextThemeWrapper {
         main.postDelayed(new Runnable(){public void run(){renderQueued=false;render();}},renders==0?0:wait);
     }
     /** What a render would show; equal signatures mean the page on screen is already right. */
-    String signature(){StringBuilder b=new StringBuilder(chip).append('|').append(loading).append('|').append(last==null?"":last.id);for(HomeTile t:songs)b.append(',').append(t.id);b.append('|');for(HomeTile t:playlists)b.append(',').append(t.id).append(t.subtitle);b.append('|').append(pinned.size());return b.toString();}
+    String signature(){StringBuilder b=new StringBuilder(chip).append('|').append(loading).append('|').append(last==null?"":last.id);for(HomeTile t:songs)b.append(',').append(t.id);b.append("|t");for(HomeTile t:trending)b.append(',').append(t.id);b.append('|');for(HomeTile t:playlists)b.append(',').append(t.id).append(t.subtitle);b.append('|').append(pinned.size());return b.toString();}
     void render(){
         if(!loaded||destroyed)return;
         String sig=signature();
@@ -160,18 +200,20 @@ public final class HomeScreen extends ContextThemeWrapper {
         boolean music=chip.equals(HomeLogic.ALL)||chip.equals(HomeLogic.DOWNLOADS);
         List<HomeTile> pick=HomeLogic.pickUp(last,songs,pinned,playlists,HomeLogic.PICK_UP_LIMIT);
         HomeTile heroSong=null;for(HomeTile t:pick)if(t.song()){heroSong=t;break;}
-        List<HomeTile> recent=music?songs.subList(0,Math.min(RECENT,songs.size())):Collections.<HomeTile>emptyList();
+        // DL56: YouTube Music Trending when there is a list (fetched or cached), else the newest downloads as before.
+        boolean online=!trending.isEmpty();
+        List<HomeTile> recent=!music?Collections.<HomeTile>emptyList():online?trending:songs.subList(0,Math.min(RECENT,songs.size()));
         HashSet<String> shown=new HashSet<>();for(HomeTile t:recent)shown.add(t.id);if(heroSong!=null)shown.add(heroSong.id);
         List<HomeTile> picks=music?HomeLogic.quickPicks(songs,shown,PICKS):Collections.<HomeTile>emptyList();
         List<HomeTile> lists=chip.equals(HomeLogic.ALL)||chip.equals(HomeLogic.PLAYLISTS)?HomeLogic.filter(playlists,HomeLogic.PLAYLISTS):chip.equals(HomeLogic.LIKED)?HomeLogic.filter(playlists,HomeLogic.LIKED):Collections.<HomeTile>emptyList();
         List<HomeTile> people=chip.equals(HomeLogic.ARTISTS)?artists:Collections.<HomeTile>emptyList();
-        if((!music||heroSong==null)&&recent.isEmpty()&&picks.isEmpty()&&lists.isEmpty()&&people.isEmpty()){if(loading){showLoading();return;}empty();return;}
+        if((!music||heroSong==null)&&recent.isEmpty()&&picks.isEmpty()&&lists.isEmpty()&&people.isEmpty()){if(loading){showLoading();return;}empty();startTrending();return;}
         if(music&&heroSong!=null){content.addView(hero(heroSong));stat("hero")[0]++;}
         if(!recent.isEmpty()){
-            content.addView(sectionTitle("Recent downloads"));
+            content.addView(sectionTitle(online?"Trending songs":"Recent downloads"));
             HorizontalScrollView row=new HorizontalScrollView(this);row.setHorizontalScrollBarEnabled(false);row.setOverScrollMode(View.OVER_SCROLL_NEVER);row.setTag("home_recent");
             LinearLayout line=new LinearLayout(this);line.setPadding(dp(16),0,dp(6),dp(4));
-            for(HomeTile t:recent){LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(dp(128),-2);lp.setMarginEnd(dp(10));line.addView(tile(t,"recent"),lp);}
+            for(HomeTile t:recent){LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(dp(128),-2);lp.setMarginEnd(dp(10));line.addView(tile(t,online?"trending":"recent"),lp);}
             row.addView(line,new FrameLayout.LayoutParams(-2,-2));content.addView(row,new LinearLayout.LayoutParams(-1,-2));
         }
         if(!picks.isEmpty()){content.addView(sectionTitle("Quick picks"));for(HomeTile t:picks)content.addView(card(t,"quick"),cardParams());}
@@ -179,6 +221,7 @@ public final class HomeScreen extends ContextThemeWrapper {
         if(!people.isEmpty()){content.addView(sectionTitle("Artists in your downloads"));for(HomeTile t:people)content.addView(card(t,"artists"),cardParams());}
         settle(generation,1500);settle(generation,4000);
         ultra.downloads.NativeIntegration.timeline("render #"+renders+" "+sectionLine());
+        startTrending();
     }
     int[] stat(String key){int[] v=sections.get(key);if(v==null){v=new int[3];sections.put(key,v);}return v;}
     /** Items per section at render time (covers are not known yet; see coverLine). */
@@ -203,6 +246,7 @@ public final class HomeScreen extends ContextThemeWrapper {
     /** Download settings > Diagnostics: one line per section of the last render. */
     public String diagnostics(){
         StringBuilder b=new StringBuilder("Ultra Home: render #").append(renders).append(" (").append(skipped).append(" skipped as unchanged), ").append(renders==0?"not rendered yet":((android.os.SystemClock.uptimeMillis()-renderedAt)/1000)+" s ago").append(loading?", loading":"").append(loaded?"":", no data yet").append('\n');
+        if(loaded)b.append("  trending: ").append(trending.isEmpty()?(trendingStarted?"none, showing Recent downloads":"not started (waits for the first render)"):trending.size()+" songs from "+trendingFrom+", fetched "+Math.max(0,(System.currentTimeMillis()-trendingAt)/60000)+" min ago").append("; last refresh: ").append(HomeSource.trendingOutcome()).append('\n');
         for(Map.Entry<String,int[]> e:sections.entrySet()){
             LinkedHashSet<String> wanted=coversWanted.get(e.getKey()),shown=coversShown.get(e.getKey());
             b.append("  ").append(e.getKey()).append(": items ").append(e.getValue()[0]).append(wanted!=null&&!wanted.isEmpty()?", covers "+(shown==null?0:shown.size())+"/"+wanted.size():"");
@@ -260,7 +304,7 @@ public final class HomeScreen extends ContextThemeWrapper {
     private View art(HomeTile t,int sizeDp,final boolean round,String section){
         Palette p=p();
         FrameLayout art=new FrameLayout(this);GradientDrawable bg=new GradientDrawable();bg.setColor(p.dark?0xff2a2424:0xfff3eced);if(round)bg.setShape(GradientDrawable.OVAL);else bg.setCornerRadius(dp(12));art.setBackground(bg);
-        ImageView glyph=new ImageView(this);glyph.setImageDrawable(NativeUi.drawable(this,t.song()?"yt_outline_music_note_vd_theme_24":t.artist()?"yt_outline_person_vd_theme_24":"yt_outline_library_music_vd_theme_24",t.song()?"music":t.artist()?"person":"playlist",p.muted));
+        ImageView glyph=new ImageView(this);glyph.setImageDrawable(NativeUi.drawable(this,t.song()||t.online()?"yt_outline_music_note_vd_theme_24":t.artist()?"yt_outline_person_vd_theme_24":"yt_outline_library_music_vd_theme_24",t.song()||t.online()?"music":t.artist()?"person":"playlist",p.muted));
         art.addView(glyph,new FrameLayout.LayoutParams(dp(Math.min(32,sizeDp/2)),dp(Math.min(32,sizeDp/2)),Gravity.CENTER));
         ImageView image=new ImageView(this);image.setScaleType(ImageView.ScaleType.CENTER_CROP);art.addView(image,new FrameLayout.LayoutParams(-1,-1));
         final float radius=dp(12);art.setOutlineProvider(new ViewOutlineProvider(){public void getOutline(View v,Outline o){if(round)o.setOval(0,0,v.getWidth(),v.getHeight());else o.setRoundRect(0,0,v.getWidth(),v.getHeight(),radius);}});art.setClipToOutline(true);
@@ -283,6 +327,8 @@ public final class HomeScreen extends ContextThemeWrapper {
                 coverSet(image,b,section,key,src[0]);}});}});}catch(RejectedExecutionException ignored){}
     }
     void open(HomeTile t){
+        try{android.util.Log.d("ULTRAHOME","tap "+t.key()+" online="+t.online());}catch(Throwable ignored){}
+        if(t.online()){ultra.downloads.NativeIntegration.timeline("trending tap "+t.id+": starting");String route=HomeSource.playOnline(host,t.id);ultra.downloads.NativeIntegration.timeline("trending tap "+t.id+": "+route);return;}
         if(t.song())HomeSource.play(this,t.id);
         else if(t.artist())HomeSource.openArtist(t.id);
         else HomeSource.openPlaylist(host,t.id);

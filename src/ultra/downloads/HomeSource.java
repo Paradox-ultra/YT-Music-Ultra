@@ -26,6 +26,49 @@ public final class HomeSource {
         }catch(Throwable e){Diagnostics.error("home_recent",e);}
         return out;
     }
+    /** DL56: YouTube Music Trending songs (TrendingFeed) as Home tiles; not downloaded, played by the host player. */
+    public static List<HomeTile> trendingTiles(TrendingFeed.Feed f){
+        ArrayList<HomeTile> out=new ArrayList<>();if(f==null)return out;
+        for(TrendingFeed.Song s:f.songs)out.add(new HomeTile(s.videoId,s.title,s.artist,HomeTile.ONLINE,false,f.fetchedAt,s.thumb));
+        return out;
+    }
+    public static TrendingFeed.Feed trendingCache(Context c){return TrendingFeed.cached(c);}
+    /** Fetches Trending now (background thread only); null when offline or unparsable (the cache is kept). */
+    public static TrendingFeed.Feed trendingRefresh(Context c){return TrendingFeed.refresh(c);}
+    public static String trendingOutcome(){return TrendingFeed.lastOutcome;}
+
+    /**
+     * Plays a Trending song (not downloaded) in the host. DL58 order: route 1 = the host's own deep-link handling (as
+     * openPlaylist): NativeIntegration.leave(), then ACTION_VIEW https://music.youtube.com/watch?v=<id> restricted to
+     * this package (SINGLE_TOP, NEW_TASK when not an Activity), only when an activity resolves. Route 2, only when none
+     * resolves: UltraWatchBridge (WatchEndpoint -> kud.f -> MusicBrowserService playFromMediaId). Neither: a toast.
+     * Returns "intent -> <component>", "watch -> <media id kind>" or "none"; no Diagnostics calls (DL57).
+     */
+    public static String playOnline(Context c,String videoId){
+        if(!TrendingFeed.valid(videoId)){Hooks.message("This song could not be opened");return "none";}
+        try{
+            Intent i=watchIntent(c,videoId);
+            android.content.ComponentName target=i.resolveActivity(c.getPackageManager());
+            if(target!=null){
+                NativeIntegration.leave();String threw="none";
+                try{c.startActivity(i);}catch(Throwable e){threw=e.getClass().getSimpleName();}
+                log("playOnline intent: resolveActivity=non-null, startActivity threw="+threw);
+                if(threw.equals("none")){log("playOnline route=intent");return "intent -> "+target.getShortClassName();}
+            }else log("playOnline intent: resolveActivity=null");
+        }catch(Throwable e){log("playOnline intent: error "+e.getClass().getSimpleName());}
+        boolean ok=false;
+        try{ok=Boolean.TRUE.equals(Class.forName("UltraWatchBridge").getMethod("play",String.class).invoke(null,videoId));}catch(Throwable ignored){}
+        if(ok){log("playOnline route=watch");return "watch -> MusicBrowserService playFromMediaId";}
+        log("playOnline route=none");Hooks.message("This song could not be opened");return "none";
+    }
+    /** DL61: logcat only (tag ULTRAHOME); route and exception class names, never ids, urls or paths. */
+    static void log(String what){try{android.util.Log.d("ULTRAHOME",what);}catch(Throwable ignored){}}
+    static Intent watchIntent(Context c,String videoId){
+        Intent i=new Intent(Intent.ACTION_VIEW,Uri.parse("https://music.youtube.com/watch?v="+videoId));i.setPackage(c.getPackageName());i.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        if(!(c instanceof android.app.Activity))i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        return i;
+    }
+
     /** The last song the player actually played (Radio's stored seed), only when it is downloaded; otherwise null. */
     public static HomeTile lastPlayed(Context c){
         try{
@@ -93,6 +136,7 @@ public final class HomeSource {
     public static Bitmap art(Context c,HomeTile t,int sizePx,String[] source){
         try{
             if(t.song())return songArt(c,t.id,sizePx,source);
+            if(t.online())return onlineArt(c,t,sizePx,source);
             if(t.artist()){for(Library.Item i:Library.all(c))if("done".equals(i.state)&&!i.hidden&&t.id.equals(i.artist.isEmpty()?UNKNOWN_ARTIST:i.artist)){Bitmap b=decode(Art.file(c,i.id),sizePx);if(b!=null)return b;}return null;}
             Bitmap cached=decode(Art.file(c,"playlist_"+PlaylistIndex.key(t.id)),sizePx);if(cached!=null)return cached;
             Set<String> ids=PlaylistIndex.members(c,t.id);ArrayList<Library.Item> members=new ArrayList<>();
@@ -124,6 +168,14 @@ public final class HomeSource {
         }
         note(source,"none");return null;
     }
+    /**
+     * Trending cover from disk only (DL57): the file is saved by TrendingFeed.cover on Home's Trending thread; the cover
+     * threads never wait on the network for Trending.
+     */
+    static Bitmap onlineArt(Context c,HomeTile t,int sizePx,String[] source){
+        Bitmap b=decode(TrendingFeed.coverFile(c,t.id),sizePx);if(b!=null){note(source,"online");return b;}
+        note(source,"none");return null;
+    }
     static void note(String[] source,String what){if(source!=null&&source.length>0)source[0]=what;}
     /** Tests only: replaces the MediaMetadataRetriever read. */
     interface EmbeddedReader{byte[] read(Context c,String uri);}
@@ -148,12 +200,20 @@ public final class HomeSource {
 
     // ------------------------------------------------------------------ actions
     /** Plays a downloaded song through the native player, queueing the other recent downloads after it. */
-    public static void play(Context c,String songId){
-        try{
-            ArrayList<String> ids=new ArrayList<>();for(HomeTile t:recentSongs(c))ids.add(t.id);
-            int index=ids.indexOf(songId);if(index<0){ids.add(0,songId);index=0;}
-            NativePlayback.start(c,ids,index);
-        }catch(Exception e){Hooks.message(e.getMessage()==null?"This song could not be played":e.getMessage());}
+    /**
+     * DL58: everything a Home song tap does (Library read, file / content-URI checks, queue prefs write, host command
+     * build) runs on this background thread; only NativePlayback.command's MediaBrowser connect is posted to main.
+     */
+    static final java.util.concurrent.ExecutorService ACTIONS=java.util.concurrent.Executors.newSingleThreadExecutor(new java.util.concurrent.ThreadFactory(){public Thread newThread(Runnable r){Thread t=new Thread(r,"ultra-home-actions");t.setDaemon(true);return t;}});
+    public static void play(Context c,final String songId){
+        final Context app=c.getApplicationContext()!=null?c.getApplicationContext():c;
+        try{ACTIONS.execute(new Runnable(){public void run(){
+            try{
+                ArrayList<String> ids=new ArrayList<>();for(HomeTile t:recentSongs(app))ids.add(t.id);
+                int index=ids.indexOf(songId);if(index<0){ids.add(0,songId);index=0;}
+                NativePlayback.start(app,ids,index);
+            }catch(Throwable e){Hooks.message(e.getMessage()==null?"This song could not be played":e.getMessage());}
+        }});}catch(java.util.concurrent.RejectedExecutionException e){Hooks.message("This song could not be played");}
     }
 
     /**

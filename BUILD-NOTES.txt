@@ -202,3 +202,92 @@ DL55 (device report on DL54)
   "repeat fromTab FEmusic_ultra_home while Home was showing (no-op): xN, first at .. ms, last at .. ms, callers
   {<host frames>=N}". The no-op openHome line is gone. The callers map names the host method that keeps calling.
 - Tests: 224 (DL55Test 2, DL52Test updated). Legacy unlisted suites: same 14 pre-existing failures.
+
+DL56
+- Home header: the top-right download icon is gone; the brand line fills the row, which keeps its 52dp height. Other
+  pages' headers and the Downloads tab are untouched.
+- "Trending songs" (replaces "Recent downloads" when a list exists): YouTube Music Explore's Trending shelf.
+  TrendingFeed: anonymous POST https://music.youtube.com/youtubei/v1/browse?prettyPrint=false (Content-Type
+  application/json, Origin https://music.youtube.com, a normal mobile browser User-Agent, no cookies or account),
+  body {"context":{"client":{"clientName":"WEB_REMIX","clientVersion":"1.20241127.01.00","hl":"en","gl":<country>}},
+  "browseId":"FEmusic_explore"}; gl = device locale country, IN when the locale has none. Parser: the
+  musicCarouselShelfRenderer titled exactly "Trending", else the first whose title contains "Trending"; items as
+  musicResponsiveListItemRenderer (videoId, flex column 0 title, column 1 artist) or musicTwoRowItemRenderer; valid
+  11-char ids, de-duplicated, top 10, largest thumbnail. Background thread (HttpURLConnection, 10 s / 15 s timeouts).
+- Cache: module prefs key ultra_trending_v1, TTL 6 h. Home shows the cache at once (phase 1); a missing or stale cache
+  starts a refresh, and a successful refresh replaces the list with one render. Offline / HTTP error / parse failure:
+  cached list if any (even stale), else "Recent downloads" exactly as before.
+- Covers: the existing cover pipeline (art threads, COVERS cache, coverSet counting); the feed thumbnail is fetched once
+  and saved as Art file "trend_<id>"; no new fade, covers never trigger a render.
+- Tap: route 1 = UltraWatchBridge.play(videoId): host WatchEndpoint (videoId only) -> kud.f -> media id ->
+  NativePlayback.command -> MusicBrowserService MediaController.playFromMediaId (the same route Radio uses). Route 2 (only
+  if route 1 throws or the host returns no media id) = ACTION_VIEW https://music.youtube.com/watch?v=<id>
+  setPackage(own package). Neither: toast "This song could not be opened". Route 1 failures after dispatch are the
+  existing NativePlayback toasts (player connection unavailable / could not start). Timeline: "trending tap <id>: <route>".
+- Diagnostics: "trending: N songs from <cache|online>, fetched X min ago; last refresh: <outcome>" or "trending: none,
+  showing Recent downloads; last refresh: ..."; timeline "trending refresh: <outcome> (N songs, gl XX)".
+- Download system untouched. Tests: 232 (DL56Test 8). Legacy unlisted suites: same 14 pre-existing failures.
+
+DL57 (device report: DL56 ANR on the A13 when tapping the Home tab; no stack)
+- Audit of the DL56 diff (no stack, so no single proven cause):
+  * No network, JSON parse or regex work of the feed ran on the main thread: request + parse on Home's Trending
+    thread, cache read on the data thread, covers on the cover threads, tap on main (host calls + one intent).
+  * Main-thread waits that DL56 could cause: (a) the cache was written with SharedPreferences.apply() to the module's
+    main settings file (ultra_downloads_settings); Android makes the main thread wait for pending apply() writes at
+    activity pause/stop and service start (QueuedWork.waitToFinish) and that file is rewritten whole; (b)
+    Diagnostics.event (from the Trending thread, the cover path and the tap path) holds the same lock (counts) that
+    main-thread Diagnostics callers take, while it writes a file.
+  * Cover threads: Trending covers fetched over the network on the 2 shared cover threads (8 s + 8 s timeouts each,
+    no in-flight de-duplication; settle re-requests at 1.5 s and 4 s queued more), so every other Home cover waited
+    behind them. HttpURLConnection followed redirects (to any https host). Small feed thumbnails (60/120 px) were
+    always rejected by the 200 px floor after a full download.
+  * No overall deadline: DNS is outside connect/read timeouts and a slow-drip body could keep a read alive; body cap was
+    8 MB and the whole tree was parsed with org.json (big transient heap on the data path).
+  * Retry: every new Home instance without a fresh cache started another request (no failure limit); the
+    trendingRunning flag was written from two threads without synchronisation.
+  * Checked and clear: static initialisers (trivial), render/signature loops (a refresh result renders once; covers never
+    render), reloadAfter (unchanged), self-heal (bounded, 2 steps), HomeLogic loops, COVERS/Art.failures locks (never
+    held across I/O), UltraWatchBridge only loaded on a tap.
+- Hardening:
+  * Trending (cache read, request, covers) starts only after Home has rendered once with its normal content (sections or
+    the empty state), on Home's own Trending thread; results reach the main thread as one render or in-place covers.
+  * Cache: own file files/ultra_trending_v1.json (temp file + rename), never SharedPreferences.
+  * Request: daemon worker; the caller waits at most 15 s for request + parse, then disconnects and gives up; body cap
+    2 MB; no redirects; one request at a time (owner token released before the result is published).
+  * Parse: streaming (android.util.JsonReader); only musicCarouselShelfRenderer objects are built; stops at the exact
+    "Trending" shelf; the deadline is checked while parsing.
+  * 2 failures in a row (offline, HTTP error, timeout, parse) stop all Trending requests until the app restarts.
+  * No Diagnostics calls on the Trending path, in the Trending cover path, or in the tap path (timeline only, main).
+  * Covers: downloaded on the Trending thread (YouTube image hosts only, no redirects, 1 MB cap, 6 s timeouts, feed
+    thumbnail upsized to 544 px, then i.ytimg.com hqdefault); cover threads only decode the saved file.
+- Tests: 238 (DL57Test 6: hung 60 s fetcher vs Home render and taps, start after first render, deadline + busy + stop
+  after 2 failures, parse deadline, ~1.2 MB streaming parse + cache file not prefs, cover host/size rules; DL56Test
+  updated for the late start and cache file). Legacy unlisted suites: same 14 pre-existing failures.
+
+DL58 (device report on DL57: ANR on a Home song tap; Trending tap did not start the player)
+- Home song tap ANR (stack: HomeScreen.open -> HomeSource.play -> NativePlayback.start -> Storage.exists ->
+  ContentResolver.openAssetFileDescriptor, SAF binder on main). HomeSource.play now does everything (Library read,
+  recentSongs, file / content-URI checks, queue prefs write, host command build) on a background thread
+  (ultra-home-actions + NativePlayback.WORK); only NativePlayback.command's MediaBrowser connect runs on main.
+- Home click handlers audited: chips (in-memory render only), hero / hero play / tiles / cards -> open(): songs (now
+  background), Trending (startActivity / host command, no I/O), artists (posts showDownloads), playlists and pins
+  (openPlaylist: resolveActivity + startActivity; its Diagnostics.event was a file write on main), empty-state Library
+  button (returnToContent: UI). Diagnostics.event no longer writes its file on the caller's thread: lines go to an
+  in-memory queue written by a background writer (Diagnostics text shows unwritten lines too).
+- Trending tap: the host deep link first (as openPlaylist): NativeIntegration.leave(), then ACTION_VIEW
+  https://music.youtube.com/watch?v=<id>, setPackage(own), SINGLE_TOP (+NEW_TASK when not an Activity), only when an
+  activity resolves. UltraWatchBridge only when none resolves. Timeline: "trending tap <id>: starting", then
+  "trending tap <id>: intent -> <host activity>" / "watch -> MusicBrowserService playFromMediaId" / "none"; for the
+  watch route "player: connected, playFromMediaId sent (<media id kind>)" or "player: ... failed".
+- Addendum (Downloads): Play / Shuffle / row Play-Shuffle / play one / selection Play / Library-selection Play all called
+  NativePlayback.start on main (one Storage.exists per song; 281 SAF calls). Now NativePlayback.startAsync: checks and
+  queue build on NativePlayback.WORK, result posted to main; "Preparing playback" shows after 400 ms and Back cancels
+  (nothing is queued). The file check has a hard 20 s limit: it then starts with the songs confirmed so far (timeline
+  "play: file check stopped at 20 s, N/M confirmed"); a missing file still stops the start, as before.
+- "Reading playlist": Back dismisses it and cancels the read (no confirm dialog follows); the read runs on its own
+  thread (it used to wait behind the screen's single io queue: refreshes, device scan) and gives up after 20 s, offering
+  the songs already loaded on the playlist page if there are any, else an error.
+- Not changed (outside the audited path, reported): Storage.exists on main in DownloadsScreen.updateSelectionActions
+  (once per selected song on every selection change), handleDownloadSelection and share.
+- Tests: 247 (DL58Test 5, DL58DownloadsTest 4; DL56Test tap route updated). Legacy unlisted suites: same 14
+  pre-existing failures.
